@@ -16,6 +16,9 @@
   .hud b{font-weight:600}
   .viewbtns{position:absolute;right:14px;top:14px;display:flex;gap:8px}
   .viewbtns button{border:0;background:rgba(255,255,255,.9);border-radius:10px;padding:9px 12px;font:500 13px Inter,sans-serif;cursor:pointer;box-shadow:0 4px 18px rgba(20,30,50,.08)}
+  .viewbtns{flex-wrap:wrap;justify-content:flex-end;max-width:210px}
+  #action-status{font-size:12px;line-height:1.5;margin-top:9px;color:#56606c}
+  #share-url{width:100%;margin-top:8px;padding:8px}
   .viewbtns button.on{background:#1d232b;color:#fff}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:#56606c}
   aside{width:350px;flex:none;background:#fff;border-left:1px solid #e5e7eb;overflow-y:auto;padding:20px 18px 28px}
@@ -47,7 +50,8 @@
   input[type=range]{width:100%;accent-color:#1d232b}
   .tg{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f1f2f4;font-size:13.5px;cursor:pointer;user-select:none}
   .tg:last-child{border-bottom:0}
-  .tg input{display:none}
+  .tg input{position:absolute;opacity:0;width:1px;height:1px}
+  .tg input:focus-visible + i{outline:2px solid #1d232b;outline-offset:3px}
   .tg i{width:38px;height:22px;border-radius:11px;background:#d9dce1;position:relative;transition:.2s;flex:none}
   .tg i::after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
   .tg input:checked + i{background:#1d232b}
@@ -76,7 +80,7 @@
 <body>
 <div id="app">
   <div id="view">
-    <canvas id="c"></canvas>
+    <canvas id="c" aria-label="Интерактивная 3D-модель дома"></canvas>
     <div id="loading">Загрузка 3D…</div>
     <div class="hud" id="stats"></div>
     <div class="viewbtns">
@@ -88,6 +92,15 @@
     <h1>Примерка кровли</h1>
     <div class="sub">Крутите дом пальцем или мышью · колесо — масштаб</div>
 
+    <section>
+      <h2>Вид и сохранение</h2>
+      <div class="seg small" id="views">
+        <button data-view="overview">Общий</button><button data-view="front">Спереди</button><button data-view="side">Сбоку</button><button data-view="top">Сверху</button><button data-view="roof">Кровля</button>
+      </div>
+      <div class="seg small"><button id="share">Ссылка</button><button id="export">Сохранить PNG</button></div>
+      <div id="action-status" role="status" aria-live="polite"></div>
+      <input id="share-url" aria-label="Ссылка на конфигурацию" readonly hidden>
+    </section>
     <section>
       <h2>Форма крыши</h2>
       <div class="types" id="types"></div>
@@ -128,18 +141,19 @@
 
     <section>
       <h2>Окружение</h2>
-      <div class="row"><label><span>Время суток</span><b id="hourv"></b></label><input type="range" id="hour" min="6.5" max="19.5" step="0.25"></div>
+      <div class="row"><label for="hour"><span>Время суток</span><b id="hourv"></b></label><input type="range" id="hour" min="6.5" max="19.5" step="0.25"></div>
       <div id="envtoggles"></div>
     </section>
 
 
-    <div class="note">Прототип визуализации. Геометрия строится из параметров, профиль листа — процедурный шейдер, волна на каждом скате идёт по линии стока.</div>
+    <div class="note">Прототип визуализации. Металлочерепица имеет объёмный профиль со ступенями рядов. Волна на каждом скате идёт по линии стока.</div>
   </aside>
 </div>
 
 <script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+try {
+const THREE = await import('three');
+const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
 
 /* ================= данные ================= */
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
@@ -159,9 +173,9 @@ const MATS = {
   falz:{ name:'Фальц',           prof:2, per:0.12 },
 };
 const COATS = {
-  gloss:{ name:'Глянец',  r:0.30, m:0.40 },
-  pural:{ name:'Пурал',   r:0.48, m:0.25 },
-  matt: { name:'Матовый', r:0.75, m:0.12 },
+  gloss:{ name:'Глянец',  r:0.27, m:0.16 },
+  pural:{ name:'Пурал',   r:0.46, m:0.10 },
+  matt: { name:'Матовый', r:0.72, m:0.05 },
 };
 const RAL = [
   ['3005','Винно-красный','#5E2129'],['3009','Оксидно-красный','#642424'],['3011','Коричнево-красный','#781F19'],
@@ -188,6 +202,39 @@ const SLIDERS = [
   { k:'O', label:'Свес',         min:0.2, max:0.9, step:0.05, unit:' м' },
 ];
 
+/* configuration helpers */
+function encodeConfiguration(state, camera){
+  return encodeURIComponent(JSON.stringify({v:1,state,camera}));
+}
+function decodeConfiguration(encoded){
+  try {
+    if(encoded.length > 12000) return null;
+    const data = JSON.parse(decodeURIComponent(encoded));
+    if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
+    const state = {};
+    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','prof','falz'],coat:['gloss','pural','matt'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
+    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],skyPos:[.2,.8]};
+    for(const [key,value] of Object.entries(data.state)){
+      if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
+      if(Object.hasOwn(ranges,key) && typeof value === 'number' && Number.isFinite(value)){
+        const [lo,hi]=ranges[key];
+        if(value>=lo && value<=hi && (!['facade','plinth','frames','skyN'].includes(key) || Number.isInteger(value))) state[key]=value;
+      }
+      if(['trims','snow','gutter','trees'].includes(key) && typeof value === 'boolean') state[key]=value;
+    }
+    const vector = a => Array.isArray(a) && a.length===3 && a.every(n=>typeof n==='number' && Number.isFinite(n) && Math.abs(n)<=200);
+    let camera = null;
+    if(data.camera && vector(data.camera.position) && vector(data.camera.target)){
+      const distance=Math.hypot(...data.camera.position.map((n,i)=>n-data.camera.target[i]));
+      if(distance>=5 && distance<=150) camera={position:data.camera.position,target:data.camera.target};
+    }
+    return {state,camera};
+  } catch { return null; }
+}
+/* end configuration helpers */
+const savedConfiguration = location.hash.startsWith('#roof=') ? decodeConfiguration(location.hash.slice(6)) : null;
+if(savedConfiguration) Object.assign(S, savedConfiguration.state);
+
 /* ================= сцена ================= */
 const canvas = document.getElementById('c');
 const view = document.getElementById('view');
@@ -196,7 +243,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.06;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xcfe0ee, 50, 150);
@@ -207,18 +255,19 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 5;
-controls.maxDistance = 60;
+controls.maxDistance = 150;
 controls.maxPolarAngle = Math.PI * 0.495;
 controls.autoRotateSpeed = 1.4;
 
-const hemi = new THREE.HemisphereLight(0xe3eeff, 0x7d7a60, 0.25);
+const hemi = new THREE.HemisphereLight(0xe5efff, 0x8a806b, 0.38);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left:-22, right:22, top:22, bottom:-22, near:1, far:120 });
 sun.shadow.bias = -0.0004;
-sun.shadow.normalBias = 0.03;
+sun.shadow.normalBias = 0.02;
+sun.shadow.radius = 3;
 scene.add(sun, sun.target);
 
 /* ---------- небо ---------- */
@@ -232,9 +281,19 @@ const skyMat = new THREE.ShaderMaterial({
   fragmentShader:`
     uniform vec3 uZen; uniform vec3 uHor; uniform vec3 uGround; uniform vec3 uSunDir; uniform vec3 uSunCol;
     varying vec3 vDir;
+    float cloudHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+    float cloudNoise(vec2 p){
+      vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(cloudHash(i),cloudHash(i+vec2(1,0)),f.x),mix(cloudHash(i+vec2(0,1)),cloudHash(i+vec2(1,1)),f.x),f.y);
+    }
     void main(){
       vec3 d = normalize(vDir);
       vec3 col = d.y > 0.0 ? mix(uHor, uZen, pow(d.y, 0.55)) : mix(uHor*0.92, uGround, smoothstep(0.0, 0.12, -d.y));
+      // Static cloud field: the same sky is captured in material reflections.
+      vec2 cp=d.xz/max(d.y+0.18,0.18)*2.1;
+      float clouds=cloudNoise(cp)*0.57+cloudNoise(cp*2.07+8.0)*0.28+cloudNoise(cp*4.13)*0.15;
+      float cloudMask=smoothstep(0.56,0.79,clouds)*smoothstep(0.02,0.23,d.y);
+      col=mix(col,mix(uHor,vec3(1.0),0.58),cloudMask*0.68);
       float s = max(dot(d, normalize(uSunDir)), 0.0);
       col += uSunCol * (pow(s, 900.0)*10.0 + pow(s, 12.0)*0.22 + pow(s,3.0)*0.06) * step(-0.02, d.y);
       gl_FragColor = vec4(col, 1.0);
@@ -271,7 +330,7 @@ function setTime(h, withEnv){
   skyU.uHor.value.copy(lerpC('#cfe2f2', '#f2b689', low));
   skyU.uSunCol.value.copy(lerpC('#fff4e0', '#ffa45c', low));
   scene.fog.color.copy(skyU.uHor.value);
-  hemi.intensity = 0.25 - 0.1 * low;
+  hemi.intensity = 0.38 - 0.17 * low;
   if(withEnv) regenEnv();
 }
 
@@ -283,7 +342,7 @@ float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
 `;
 
 /* ---------- газон ---------- */
-const groundMat = new THREE.MeshStandardMaterial({ color:'#93a86c', roughness:1, metalness:0 });
+const groundMat = new THREE.MeshStandardMaterial({ color:'#89956e', roughness:1, metalness:0 });
 groundMat.onBeforeCompile = (sh) => {
   sh.vertexShader = 'varying vec2 vGP;\n' + sh.vertexShader.replace('#include <project_vertex>',
     '#include <project_vertex>\n vGP = (modelMatrix*vec4(transformed,1.0)).xz;');
@@ -308,10 +367,10 @@ varying vec3 vSU;
 varying vec3 vSV;
 varying vec2 vM;
 float hTile(vec2 p){
-  float w = 0.5 - 0.5*cos(6.2831853*p.x/0.183);
-  float s = fract(p.y/0.35);
-  float row = smoothstep(0.0,0.035,s)*(0.55+0.45*sin(3.14159265*s));
-  return 0.010*row + 0.020*w*(0.45+0.55*row);
+  float wave = pow(0.5+0.5*cos(6.2831853*p.x/0.183),2.0);
+  float row = fract(p.y/0.35);
+  float stepProfile = smoothstep(0.0,0.026,row)*(1.0-smoothstep(0.026,1.0,row));
+  return 0.026*wave + 0.014*stepProfile*(0.6+0.4*wave);
 }
 float hProf(vec2 p){
   float t = fract(p.x/0.2);
@@ -329,13 +388,13 @@ float hgt(vec2 p){
   if(uProfile==1) return hProf(p);
   return hFalz(p);
 }
-float hMax(){ return uProfile==0 ? 0.03 : (uProfile==1 ? 0.035 : 0.03); }
+float hMax(){ return uProfile==0 ? 0.04 : (uProfile==1 ? 0.035 : 0.03); }
 float detailFade(){
   float f = max(fwidth(vM.x), fwidth(vM.y));
   return 1.0 - smoothstep(uPer*0.18, uPer*0.6, f);
 }
 `;
-const roofMat = new THREE.MeshStandardMaterial({ color:'#45322E', roughness:.3, metalness:.4, side:THREE.DoubleSide, envMapIntensity:.75 });
+const roofMat = new THREE.MeshPhysicalMaterial({ color:'#45322E', roughness:.3, metalness:.16, clearcoat:.32, clearcoatRoughness:.22, side:THREE.DoubleSide, envMapIntensity:.65 });
 roofMat.onBeforeCompile = (sh) => {
   sh.uniforms.uProfile = U.uProfile;
   sh.uniforms.uPer = U.uPer;
@@ -348,18 +407,28 @@ roofMat.onBeforeCompile = (sh) => {
       {
         float fdC = detailFade();
         float hN = hgt(vM)/hMax();
-        diffuseColor.rgb *= mix(0.9, mix(0.76,1.0,hN), fdC);
+        if(uProfile==0){
+          float row=fract(vM.y/0.35);
+          float crease=(1.0-smoothstep(0.025,0.085,row))*smoothstep(0.0,0.01,row);
+          diffuseColor.rgb *= 1.0 - 0.12*crease*fdC;
+        } else diffuseColor.rgb *= mix(0.9, mix(0.76,1.0,hN), fdC);
       }`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       {
-        float e = 0.0025;
+        float e = uProfile==0 ? 0.001 : 0.0025;
         float fd = detailFade();
         float hu = (hgt(vM+vec2(e,0.0)) - hgt(vM-vec2(e,0.0)))/(2.0*e);
         float hv = (hgt(vM+vec2(0.0,e)) - hgt(vM-vec2(0.0,e)))/(2.0*e);
-        normal = normalize(normal - (hu*normalize(vSU) + hv*normalize(vSV))*1.6*fd*faceDirection);
-      }`);
+        float strength=uProfile==0 ? 1.0 : 1.6;
+        normal = normalize(normal - (hu*normalize(vSU) + hv*normalize(vSV))*strength*fd*faceDirection);
+      }`)
+    .replace('#include <clearcoat_normal_fragment_maps>', `#include <clearcoat_normal_fragment_maps>
+      #ifdef USE_CLEARCOAT
+        if(uProfile==0) clearcoatNormal = normal;
+      #endif
+    `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v1';
+roofMat.customProgramCacheKey = () => 'roof-profile-v2';
 
 /* ---------- фасад: штукатурка / кирпич / камень ---------- */
 const WU = { uKind:{ value:0 } };
@@ -400,13 +469,30 @@ wallMat.customProgramCacheKey = () => 'wall-v1';
 const trimMat = new THREE.MeshStandardMaterial({ color:'#45322E', roughness:.3, metalness:.4 });
 const gutterMat = new THREE.MeshStandardMaterial({ color:'#45322E', roughness:.35, metalness:.35 });
 const skyFrameMat = new THREE.MeshStandardMaterial({ color:'#4b4f54', roughness:.45, metalness:.5 });
-const skyGlassMat = new THREE.MeshStandardMaterial({ color:'#1d2a36', roughness:.03, metalness:.85 });
+const skyGlassMat = new THREE.MeshPhysicalMaterial({ color:'#66818c', roughness:.08, metalness:0, clearcoat:1, clearcoatRoughness:.04, envMapIntensity:1.15 });
 const plinthMat = new THREE.MeshStandardMaterial({ color:'#8A8277', roughness:.95 });
 const frameMat = new THREE.MeshStandardMaterial({ color:'#F7F7F5', roughness:.55 });
-const glassMat = new THREE.MeshStandardMaterial({ color:'#26323e', roughness:.05, metalness:.7 });
+const glassMat = new THREE.MeshPhysicalMaterial({ color:'#536873', roughness:.09, metalness:0, clearcoat:1, clearcoatRoughness:.04, envMapIntensity:1.1 });
 const doorMat = new THREE.MeshStandardMaterial({ color:'#5a4232', roughness:.7 });
 const pavingMat = new THREE.MeshStandardMaterial({ color:'#cfc9be', roughness:.95 });
-const pathMat = new THREE.MeshStandardMaterial({ color:'#d9d2c4', roughness:.95 });
+const pathMat = new THREE.MeshStandardMaterial({ color:'#c5bdad', roughness:.95 });
+// World-space paving keeps slab sizes consistent as the house changes size.
+function pavingSurface(material, slabX, slabZ){
+  material.onBeforeCompile = sh => {
+    sh.vertexShader = 'varying vec2 vPaving;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vPaving=(modelMatrix*vec4(transformed,1.0)).xz;');
+    sh.fragmentShader = 'varying vec2 vPaving;\n' + NOISE + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      vec2 grid=vPaving/vec2(${slabX},${slabZ});
+      vec2 edge=min(fract(grid),1.0-fract(grid));
+      vec2 aa=max(fwidth(grid),vec2(0.0001));
+      float slab=min(smoothstep(0.009,0.009+aa.x,edge.x),smoothstep(0.009,0.009+aa.y,edge.y));
+      float variation=0.94+0.10*hash2(floor(grid));
+      diffuseColor.rgb*=mix(0.57,variation,slab)*(0.97+0.04*vnoise(vPaving*48.0));
+    `);
+  };
+  material.customProgramCacheKey=()=>`paving-${slabX}-${slabZ}`;
+}
+pavingSurface(pavingMat,0.6,0.6);
+pavingSurface(pathMat,0.35,0.7);
 const trunkMat = new THREE.MeshStandardMaterial({ color:'#6b4c35', roughness:.95 });
 const leafMats = ['#5f7d3c','#4f6e33','#6b8840'].map(c => new THREE.MeshStandardMaterial({ color:c, roughness:.9, flatShading:true }));
 const spruceMat = new THREE.MeshStandardMaterial({ color:'#3c5a35', roughness:.9, flatShading:true });
@@ -459,6 +545,47 @@ function slopeGeometry(ptsIn){
   g.setAttribute('aM',       new THREE.Float32BufferAttribute(m,2));
   const centroid = pts.reduce((c,p) => c.add(p), new THREE.Vector3()).multiplyScalar(1/pts.length);
   return { g, area, pts, uv, n, U:Uv, V:Vv, o, centroid };
+}
+
+/* tile profile */
+// Metres: pressed wave + a short upstand at each 350 mm course.
+// Keep in sync with hTile in the fragment shader.
+function tileHeight(u,v){
+  const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+  const wave=Math.pow(.5+.5*Math.cos(2*Math.PI*u/.183),2);
+  const row=((v/.35)%1+1)%1;
+  const step=smooth(0,.026,row)*(1-smooth(.026,1,row));
+  return .026*wave+.014*step*(.6+.4*wave);
+}
+/* end tile profile */
+
+function tileGeometry(s){
+  const vMax=Math.max(...s.uv.map(p=>p[1]));
+  const width=Math.max(...s.uv.map(p=>p[0]))-Math.min(...s.uv.map(p=>p[0]));
+  const columns=Math.max(1,Math.ceil(width/(.183/8)));
+  // Concentrate samples on the pressed face instead of uniformly adding polygons.
+  const heights=new Set([0,vMax,...s.uv.map(p=>p[1])]);
+  for(let row=0;row*.35<vMax;row++) for(const fraction of [0,.008,.026,.05,.10,.20,.40,.65,.88,1]){
+    const v=(row+fraction)*.35;if(v>0 && v<vMax) heights.add(v);
+  }
+  const rows=[...heights].sort((a,b)=>a-b).filter((v,i,a)=>i===0 || v-a[i-1]>1e-7);
+  const pos=[],nor=[],su=[],sv=[],meters=[],indices=[];
+  for(const v of rows){
+    const [lo,hi]=spanAt(s,v);
+    for(let col=0;col<=columns;col++){
+      const u=lo+(hi-lo)*col/columns,h=tileHeight(u,v);
+      pos.push(s.o.x+s.U.x*u+s.V.x*v+s.n.x*h,s.o.y+s.U.y*u+s.V.y*v+s.n.y*h,s.o.z+s.U.z*u+s.V.z*v+s.n.z*h);
+      nor.push(s.n.x,s.n.y,s.n.z);su.push(s.U.x,s.U.y,s.U.z);sv.push(s.V.x,s.V.y,s.V.z);meters.push(u,v);
+    }
+  }
+  for(let row=0;row<rows.length-1;row++) for(let col=0;col<columns;col++){
+    const a=row*(columns+1)+col,b=a+1,c=a+columns+1,d=c+1;
+    indices.push(a,b,d,a,d,c);
+  }
+  const g=new THREE.BufferGeometry();
+  for(const [name,data,size] of [['position',pos,3],['normal',nor,3],['slopeU',su,3],['slopeV',sv,3],['aM',meters,2]]) g.setAttribute(name,new THREE.Float32BufferAttribute(data,size));
+  g.setIndex(indices);g.computeBoundingSphere();
+  return g;
 }
 
 function flatGeometry(pts){
@@ -559,6 +686,7 @@ function roofModel(){
 /* ================= сборка ================= */
 const house = new THREE.Group();
 const envGroup = new THREE.Group();
+const roofSurfaceMeshes = [];
 scene.add(house, envGroup);
 
 function clearGroup(g){ g.traverse(o => { if(o.geometry) o.geometry.dispose(); }); g.clear(); }
@@ -569,6 +697,8 @@ function addOpening(c, nrm, tan, off, y, w, h, kind){
   if(kind === 'door'){
     look(new THREE.Mesh(new THREE.PlaneGeometry(w+0.16, h+0.08), frameMat), 0.012);
     look(new THREE.Mesh(new THREE.PlaneGeometry(w, h), doorMat), 0.02);
+    const handle=new THREE.Mesh(new THREE.BoxGeometry(.035,.22,.045),skyFrameMat);
+    look(handle,.065);handle.position.addScaledVector(tan,w*.32);
     const canopy = new THREE.Mesh(new THREE.BoxGeometry(w+0.8, 0.06, 0.9), trimMat);
     canopy.position.copy(base).addScaledVector(nrm, 0.45); canopy.position.y = y + h/2 + 0.35;
     canopy.lookAt(canopy.position.clone().add(nrm)); canopy.castShadow = true; house.add(canopy);
@@ -576,10 +706,20 @@ function addOpening(c, nrm, tan, off, y, w, h, kind){
     step.position.copy(base).addScaledVector(nrm, 0.5); step.position.y = 0.15;
     step.lookAt(step.position.clone().add(nrm)); step.castShadow = step.receiveShadow = true; house.add(step);
   } else {
-    look(new THREE.Mesh(new THREE.PlaneGeometry(w+0.16, h+0.16), frameMat), 0.012);
-    look(new THREE.Mesh(new THREE.PlaneGeometry(w, h), glassMat), 0.02);
-    look(new THREE.Mesh(new THREE.PlaneGeometry(0.06, h), frameMat), 0.026);
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(w+0.3, 0.05, 0.14), frameMat);
+    // Raised frame surrounds a recessed pane; real depth catches sun and shadow.
+    look(new THREE.Mesh(new THREE.PlaneGeometry(w+0.16,h+0.16),frameMat),0.012);
+    look(new THREE.Mesh(new THREE.PlaneGeometry(w,h),glassMat),0.025);
+    for(const x of [-w/2-.035,w/2+.035]){
+      const frame=new THREE.Mesh(new THREE.BoxGeometry(.07,h+.16,.10),frameMat);
+      look(frame,.055);frame.position.addScaledVector(tan,x);frame.castShadow=true;
+    }
+    for(const yOff of [-h/2-.035,h/2+.035]){
+      const frame=new THREE.Mesh(new THREE.BoxGeometry(w,.07,.10),frameMat);
+      look(frame,.055);frame.position.y+=yOff;frame.castShadow=true;
+    }
+    const mullion=new THREE.Mesh(new THREE.BoxGeometry(.055,h,.075),frameMat);
+    look(mullion,.065);mullion.castShadow=true;
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(w+0.3, 0.05, 0.24), frameMat);
     sill.position.copy(base).addScaledVector(nrm, 0.07); sill.position.y = y - h/2 - 0.08;
     sill.lookAt(sill.position.clone().add(nrm)); house.add(sill);
   }
@@ -598,7 +738,7 @@ function makeTree(x, z, kind, s){
     const trunk = rod(new THREE.Vector3(0,0,0), new THREE.Vector3(0,2.0*s,0), 0.15*s, trunkMat, 7); g.add(trunk);
     const mat = leafMats[Math.floor((x*7+z*3)%3+3)%3];
     for(const [dx,dy,dz,r] of [[0,3.0,0,1.5],[0.7,2.6,0.3,1.05],[-0.6,2.7,-0.4,1.1],[0.1,3.7,0.2,0.95]]){
-      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(r*s, 1), mat);
+      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(r*s, 2), mat);
       blob.position.set(dx*s, dy*s, dz*s); blob.castShadow = true; g.add(blob);
     }
   }
@@ -607,6 +747,13 @@ function makeTree(x, z, kind, s){
 }
 
 let kit = {};
+let environmentKey = '';
+let pendingBuild = false;
+function scheduleBuild(){
+  if(pendingBuild) return;
+  pendingBuild = true;
+  requestAnimationFrame(() => { pendingBuild = false; build(); });
+}
 
 // ширина ската (интервал u) на высоте v
 function spanAt(s, v){
@@ -622,7 +769,8 @@ function spanAt(s, v){
 }
 
 function build(){
-  clearGroup(house); clearGroup(envGroup);
+  clearGroup(house);
+  roofSurfaceMeshes.length=0;
   const { W, L, H, O } = S;
 
   // стены, цоколь, отмостка, тень
@@ -661,8 +809,9 @@ function build(){
   // крыша
   const M = roofModel();
   const lift = new THREE.Vector3(0, 0.04, 0);
-  for(const pts of M.slopes) pts.forEach(p => p.add(lift));
-  for(const seg of M.ridges) seg.forEach(p => p.add(lift));
+  // Шатровые скаты и рёбра используют общие объекты вершин.
+  const roofPoints = new Set([...M.slopes.flat(), ...M.ridges.flat()]);
+  for(const p of roofPoints) p.add(lift);
   M.y0 += 0.04;
 
   kit = { area:0, ridge:0, rake:0, eave:0, gutter:0, pipes:0, pipeLen:0, snow:0 };
@@ -673,7 +822,10 @@ function build(){
   for(const pts of M.slopes){
     const s = slopeGeometry(pts);
     kit.area += s.area;
+    if(S.mat==='tile'){s.g.dispose();s.g=tileGeometry(s);}
     const mesh = new THREE.Mesh(s.g, roofMat);
+    mesh.userData.tileRelief=S.mat==='tile';
+    roofSurfaceMeshes.push({mesh,s});
     mesh.castShadow = mesh.receiveShadow = true;
     house.add(mesh);
     infos.push(s);
@@ -813,27 +965,48 @@ function build(){
   }
 
   // деревья
-  if(S.trees){
+  const nextEnvironmentKey = `${W}:${L}:${S.trees}`;
+  if(environmentKey !== nextEnvironmentKey){
+    clearGroup(envGroup);
+    environmentKey = nextEnvironmentKey;
+    if(S.trees){
     const R = Math.hypot(W, L)/2 + 4.5;
     for(const [ang, dr, kind, sc] of [[-55,0.5,'round',1.1],[-105,2.5,'spruce',1.15],[125,1.5,'round',1.25],[165,3.5,'spruce',1.3],[210,0.8,'round',0.95],[255,2.2,'spruce',1.0],[-150,6,'round',1.0]]){
       const a = ang*Math.PI/180, r = R + dr;
       makeTree(Math.sin(a)*r, Math.cos(a)*r, kind, sc);
     }
+    }
   }
 
+  updateStats(M.pitchText);
+}
+
+function updateStats(pitchText){
   const typ = TYPES.find(x => x.id === S.type);
   document.getElementById('stats').innerHTML =
     `<b>${typ.name}</b> · скатов: ${typ.n}<br>` +
-    `Угол: ${M.pitchText}<br>` +
+    `Угол: ${pitchText}<br>` +
     `${MATS[S.mat].name}, RAL ${S.ral}`;
 }
 
 /* ================= внешний вид ================= */
 function applyLook(){
+  for(const {mesh,s} of roofSurfaceMeshes){
+    const tile=S.mat==='tile';
+    if(mesh.userData.tileRelief!==tile){
+      mesh.geometry.dispose();
+      mesh.geometry=tile ? tileGeometry(s) : slopeGeometry(s.pts).g;
+      s.g=mesh.geometry;
+      mesh.userData.tileRelief=tile;
+    }
+  }
+  updateStats(roofModel().pitchText);
   const r = RAL.find(r => r[0] === S.ral);
   roofMat.color.set(r[2]); trimMat.color.set(r[2]);
   const c = COATS[S.coat];
   roofMat.roughness = trimMat.roughness = c.r;
+  roofMat.clearcoat = S.coat === 'gloss' ? .38 : (S.coat === 'pural' ? .16 : .04);
+  roofMat.clearcoatRoughness = S.coat === 'gloss' ? .2 : .5;
   roofMat.metalness = trimMat.metalness = c.m;
   U.uProfile.value = MATS[S.mat].prof;
   U.uPer.value = MATS[S.mat].per;
@@ -857,7 +1030,8 @@ function segment(el, items, key, onChange, html){
     const b = document.createElement('button');
     b.innerHTML = html ? html(id, label) : label;
     if(S[key] === id) b.classList.add('on');
-    b.onclick = () => { S[key] = id; [...el.children].forEach(x => x.classList.remove('on')); b.classList.add('on'); onChange(); };
+    b.setAttribute('aria-pressed', String(S[key] === id));
+    b.onclick = () => { S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); onChange(); };
     el.appendChild(b);
   }
 }
@@ -870,10 +1044,11 @@ segment(document.getElementById('frames'), FRAMES.map((f,i) => [i, f[1]]), 'fram
 function swatches(el, list, key, bg, title){
   list.forEach((item, i) => {
     const b = document.createElement('button');
-    b.style.background = bg(item); b.title = title(item);
+    b.style.background = bg(item); b.title = title(item); b.setAttribute('aria-label', title(item));
     const id = key === 'ral' ? item[0] : i;
     if(S[key] === id) b.classList.add('on');
-    b.onclick = () => { S[key] = id; [...el.children].forEach(x => x.classList.remove('on')); b.classList.add('on'); applyLook(); };
+    b.setAttribute('aria-pressed', String(S[key] === id));
+    b.onclick = () => { S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); applyLook(); };
     el.appendChild(b);
   });
 }
@@ -897,9 +1072,9 @@ toggles(document.getElementById('envtoggles'), [['trees','Деревья']]);
 function addSlider(parent, s){
   const row = document.createElement('div'); row.className = 'row';
   const fmt = s.fmt || (v => (s.step < 1 ? (+v).toFixed(s.step < 0.1 ? 2 : 1) : v) + s.unit);
-  row.innerHTML = `<label><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
+  row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
-  inp.oninput = () => { S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); build(); };
+  inp.oninput = () => { S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
   parent.appendChild(row);
 }
 for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
@@ -915,14 +1090,73 @@ hourEl.oninput = () => { S.hour = +hourEl.value; hourV.textContent = fmtH(S.hour
 hourEl.onchange = () => setTime(S.hour, true);
 
 const rotBtn = document.getElementById('rot');
-rotBtn.onclick = () => { controls.autoRotate = !controls.autoRotate; rotBtn.classList.toggle('on', controls.autoRotate); };
-function resetView(){
-  const d = Math.max(S.W, S.L)*1.45 + 7;
-  camera.position.set(d*0.78, S.H + d*0.42, d*0.95);
-  controls.target.set(0, S.H*0.75, 0);
-  controls.update();
+rotBtn.setAttribute('aria-pressed', 'false');
+rotBtn.onclick = () => { controls.autoRotate = !controls.autoRotate; rotBtn.classList.toggle('on', controls.autoRotate); rotBtn.setAttribute('aria-pressed', String(controls.autoRotate)); };
+function setView(name='overview'){
+  // Include tall single-slope and mansard roofs when framing the house.
+  const box = new THREE.Box3().setFromPoints([
+    ...roofModel().slopes.flat(),
+    new THREE.Vector3(-S.W/2,0,-S.L/2),
+    new THREE.Vector3(S.W/2,0,S.L/2)
+  ]);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const radius = size.length()/2;
+  const angle = Math.min(camera.fov*Math.PI/360, Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect));
+  const distance = Math.max(5, radius/Math.sin(angle)*1.08);
+  const directions = {overview:[.78,.5,.95],front:[0,.12,1],side:[1,.12,0],top:[0,1,.001],roof:[.65,.9,.8]};
+  if(name==='roof') center.y = box.max.y - Math.max(1,size.y*.2);
+  const direction = new THREE.Vector3(...(directions[name] || directions.overview)).normalize();
+  controls.autoRotate = false;
+  rotBtn.classList.remove('on'); rotBtn.setAttribute('aria-pressed','false');
+  controls.target.copy(center);
+  camera.position.copy(center).addScaledVector(direction, Math.min(145,distance*(name==='roof'?.75:1)));
+  // Prevent damping from moving the camera after choosing a fixed view.
+  const damping = controls.enableDamping; controls.enableDamping=false; controls.update(); controls.enableDamping=damping;
 }
+function resetView(){ setView('overview'); }
 document.getElementById('reset').onclick = resetView;
+for(const button of document.querySelectorAll('[data-view]')) button.onclick=()=>setView(button.dataset.view);
+const actionStatus=document.getElementById('action-status');
+const shareUrl=document.getElementById('share-url');
+document.getElementById('share').onclick=async()=>{
+  const url=new URL(location.href);
+  url.hash='roof='+encodeConfiguration(S,{position:camera.position.toArray(),target:controls.target.toArray()});
+  shareUrl.value=url.href; shareUrl.hidden=false;
+  if(location.protocol==='file:'){
+    actionStatus.textContent='Конфигурация сохранена в адресе ниже. Чтобы делиться ссылкой, откройте визуализатор на опубликованном сайте.';
+    shareUrl.focus(); shareUrl.select(); return;
+  }
+  try {
+    await navigator.clipboard.writeText(url.href);
+    actionStatus.textContent='Ссылка скопирована. Она сохраняет параметры дома и ракурс.';
+  } catch {
+    actionStatus.textContent='Скопируйте ссылку из поля ниже.'; shareUrl.focus(); shareUrl.select();
+  }
+};
+document.getElementById('export').onclick=()=>{
+  if(pendingBuild){ pendingBuild=false; build(); }
+  try {
+    // Capture immediately after rendering, before WebGL clears its drawing buffer.
+    sky.position.copy(camera.position); renderer.render(scene,camera);
+    const output=document.createElement('canvas');
+    output.width=canvas.width; output.height=canvas.height+100;
+    const ctx=output.getContext('2d');
+    ctx.drawImage(canvas,0,0);
+    ctx.fillStyle='#ffffff';ctx.fillRect(0,canvas.height,output.width,100);
+    ctx.fillStyle='#1d232b';ctx.font='24px system-ui';
+    const caption=`${TYPES.find(t=>t.id===S.type).name} · ${MATS[S.mat].name}`;
+    ctx.fillText(caption,20,canvas.height+36,output.width-40);
+    ctx.font='20px system-ui';ctx.fillText(`${COATS[S.coat].name} · RAL ${S.ral}`,20,canvas.height+72,output.width-40);
+    output.toBlob(blob=>{
+      if(!blob){actionStatus.textContent='Не удалось создать PNG. Попробуйте ещё раз.';return;}
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=`roof-${S.type}-RAL${S.ral}.png`;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),10000);
+      actionStatus.textContent='PNG подготовлен к скачиванию.';
+    },'image/png');
+  } catch(error){ console.error(error);actionStatus.textContent='Не удалось сохранить изображение. Попробуйте другой браузер.'; }
+};
 
 /* ================= цикл ================= */
 function resize(){
@@ -938,6 +1172,12 @@ applyLook();
 build();
 resize();
 resetView();
+if(savedConfiguration?.camera){
+  camera.position.fromArray(savedConfiguration.camera.position);
+  controls.target.fromArray(savedConfiguration.camera.target);
+  controls.update();
+}
+if(location.hash.startsWith('#roof=') && !savedConfiguration) actionStatus.textContent='Ссылка повреждена или имеет неподдерживаемую версию. Открыты стандартные настройки.';
 document.getElementById('loading').remove();
 
 renderer.setAnimationLoop(() => {
@@ -945,6 +1185,16 @@ renderer.setAnimationLoop(() => {
   sky.position.copy(camera.position);
   renderer.render(scene, camera);
 });
+} catch(error) {
+  console.error('Не удалось запустить 3D-визуализатор:', error);
+  const loading = document.getElementById('loading');
+  if(loading){
+    loading.setAttribute('role', 'alert');
+    loading.style.padding = '24px';
+    loading.style.textAlign = 'center';
+    loading.textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету и поддержку WebGL в браузере, затем обновите страницу.';
+  }
+}
 </script>
 </body>
 </html>
