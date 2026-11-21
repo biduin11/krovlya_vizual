@@ -59,12 +59,13 @@ test('Bavaria matches the supplied dimensions: 35 mm wave, 350 mm course, 5 wave
  const lip=h(.102,.35*.06)-h(.102,0);
  assert.ok(Math.abs(h(0,0)-h(.102,0)-.035)<1e-9,'wave height 35 mm');
  assert.ok(Math.abs(lip-.020)<1e-9,'course lip 20 mm');
- // широкая плоская впадина: на 7 см вокруг середины впадины высота волны не меняется
- for(let u=.067;u<=.137;u+=.01) assert.ok(Math.abs(h(u,0)-h(.102,0))<1e-9);
+ // широкая плоская площадка между волнами: не меньше 11 см
+ for(let u=.0465;u<=.1575;u+=.005) assert.ok(Math.abs(h(u,0)-h(.102,0))<1e-9,'pan must be flat at '+u.toFixed(4));
  assert.ok(h(0,mid)>h(.03,mid) && h(.03,mid)>h(.06,mid),'rounded crest falls into the pan');
- // гребень выпуклый, как дуга окружности: на полпути к краю он ещё почти полной высоты,
- // а кривизна по всему гребню (кроме скругления у впадины) направлена вниз
+ // гребень — почти полукруг: на полпути к краю он ещё выше 80 % высоты,
+ // а кривизна по всему гребню (кроме скругления у площадки) направлена вниз
  const base=h(.102,mid);
- assert.ok(h(.029,mid)-base>.75*.035,'crest must be full and convex, not pointed');
- for(let u=.004;u<=.052;u+=.004) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<0,'crest is convex at '+u.toFixed(3));
+ assert.ok(h(.021,mid)-base>.8*.035,'crest must be full and convex, not pointed');
+ assert.ok(h(.044,mid)-base<.001,'crest is narrow: no wider than 88 mm');
+ for(let u=.004;u<=.036;u+=.004) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<0,'crest is convex at '+u.toFixed(3));
 });

@@ -502,9 +502,9 @@ float hCascade(vec2 p){
 float bavariaWave(float u){
   float t = fract(u/uPer);
   float d = min(t,1.0-t)*uPer;
-  // Выпуклая дуга окружности: высота 35 мм, полуширина 58 мм (R ≈ 65,6 мм).
-  // Внизу скругление 4 мм — дуга без излома переходит в плоскую впадину.
-  const float H = 0.035, A = 0.058, K = 0.004;
+  // Почти полукруг: высота 35 мм, полуширина 42 мм (R ≈ 42,7 мм); плоская площадка ≈ 11 см.
+  // Внизу скругление 4 мм — дуга без излома переходит в площадку.
+  const float H = 0.035, A = 0.042, K = 0.004;
   const float R = (A*A + H*H)/(2.0*H);
   float arc = sqrt(max(R*R - d*d, 0.0)) - (R - H);
   float s = clamp(0.5 - 0.5*arc/K, 0.0, 1.0);
@@ -689,7 +689,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v16';
+roofMat.customProgramCacheKey = () => 'roof-profile-v17';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -829,8 +829,8 @@ function bavariaHeight(u,v){
   const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
   const t=((u/.204)%1+1)%1, d=Math.min(t,1-t)*.204;
   const row=((v/.35)%1+1)%1;
-  // Выпуклая дуга окружности (высота 35 мм, полуширина 58 мм) со скруглением 4 мм у впадины.
-  const H=.035,A=.058,K=.004,R=(A*A+H*H)/(2*H);
+  // Почти полукруг (высота 35 мм, полуширина 42 мм) со скруглением 4 мм у площадки.
+  const H=.035,A=.042,K=.004,R=(A*A+H*H)/(2*H);
   const arc=Math.sqrt(Math.max(R*R-d*d,0))-(R-H);
   const s=Math.max(0,Math.min(1,.5-.5*arc/K));
   const wave=(arc*(1-s)+K*s*(1-s))/H;
@@ -875,7 +875,7 @@ function roofReliefGeometry(s, material, quality='overview'){
   const rows=[...heights].sort((a,b)=>a-b).filter((v,i,a)=>i===0 || v-a[i-1]>1e-7);
   // Черепица: не больше 32 000 треугольников на скат в общем виде и 96 000 вблизи.
   const budget = detailed ? 96000 : 32000;
-  const columns = straight ? 1 : Math.max(1,Math.min(Math.ceil((right-left)/(material.per/(detailed?12:6))),Math.floor(budget/(2*Math.max(1,rows.length-1)))));
+  const columns = straight ? 1 : Math.max(1,Math.min(Math.ceil((right-left)/(material.per/(material.prof===4 ? (detailed?24:12) : (detailed?12:6)))),Math.floor(budget/(2*Math.max(1,rows.length-1)))));
   const pos=[],nor=[],su=[],sv=[],meters=[],relief=[],indices=[];
   for(const row of rows){
     const [lo,hi]=spanAt(section,row);
