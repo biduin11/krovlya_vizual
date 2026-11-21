@@ -268,7 +268,7 @@ const TYPES = [
 const MATS = {
   tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061 },
   cascade:{ name:'Каскад',    prof:3, per:0.183, height:0.045 },
-  bavaria:{ name:'Бавария',   prof:4, per:0.204, height:0.055 },
+  bavaria:{ name:'Бавария',   prof:4, per:0.204, height:0.074 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
   falz:   { name:'Фальц',     prof:2, per:0.120, height:0.030 },
@@ -502,9 +502,9 @@ float hCascade(vec2 p){
 float bavariaWave(float u){
   float t = fract(u/uPer);
   float d = min(t,1.0-t)*uPer;
-  // Почти полукруг: высота 35 мм, полуширина 42 мм (R ≈ 42,7 мм); плоская площадка ≈ 11 см.
+  // Выпуклый гребень: высота 30 мм, полуширина 42 мм (R ≈ 44,4 мм); плоская площадка ≈ 11 см.
   // Внизу скругление 4 мм — дуга без излома переходит в площадку.
-  const float H = 0.035, A = 0.042, K = 0.004;
+  const float H = 0.030, A = 0.042, K = 0.004;
   const float R = (A*A + H*H)/(2.0*H);
   float arc = sqrt(max(R*R - d*d, 0.0)) - (R - H);
   float s = clamp(0.5 - 0.5*arc/K, 0.0, 1.0);
@@ -513,7 +513,7 @@ float bavariaWave(float u){
 float hBavaria(vec2 p){
   float row = fract(p.y/0.35);
   float stepProfile = smoothstep(0.0,0.06,row)*(1.0-smoothstep(0.06,1.0,row));
-  return 0.035*bavariaWave(p.x) + 0.020*stepProfile;
+  return 0.030*bavariaWave(p.x) + 0.044*stepProfile;
 }
 float cascadeGrooveDistance(float u){
   float d = abs(fract(u/uPer)-0.5)*uPer;
@@ -689,7 +689,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v17';
+roofMat.customProgramCacheKey = () => 'roof-profile-v18';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -823,18 +823,19 @@ function tileHeight(u,v){
   const step=smooth(0,.018,row)*(1-smooth(.018,1,row));
   return .036*wave+.025*step;
 }
-// Бавария: ширина 1130/1020 мм, шаг волны 204 мм (5 волн на полезной ширине), волна 35 мм, валик ряда 20 мм, ряд 350 мм.
+// Бавария (чертёж производителя): ширина 1135/1020 мм, 5 волн на полезной ширине — шаг 204 мм,
+// волна 30 мм, валик ряда 44 мм, высота профиля 74 мм, ряд 350 мм.
 // Синхронно с hBavaria в GLSL.
 function bavariaHeight(u,v){
   const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
   const t=((u/.204)%1+1)%1, d=Math.min(t,1-t)*.204;
   const row=((v/.35)%1+1)%1;
-  // Почти полукруг (высота 35 мм, полуширина 42 мм) со скруглением 4 мм у площадки.
-  const H=.035,A=.042,K=.004,R=(A*A+H*H)/(2*H);
+  // Выпуклый гребень (высота 30 мм, полуширина 42 мм) со скруглением 4 мм у площадки.
+  const H=.030,A=.042,K=.004,R=(A*A+H*H)/(2*H);
   const arc=Math.sqrt(Math.max(R*R-d*d,0))-(R-H);
   const s=Math.max(0,Math.min(1,.5-.5*arc/K));
   const wave=(arc*(1-s)+K*s*(1-s))/H;
-  return .035*wave+.020*smooth(0,.06,row)*(1-smooth(.06,1,row));
+  return .030*wave+.044*smooth(0,.06,row)*(1-smooth(.06,1,row));
 }
 /* end tile profile */
 
@@ -1364,7 +1365,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 
 function placeSkylight({group, frame, s, point:[u,v]}){
   needsRender=true;
-  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.043 : 0;
+  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.058 : 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
   frame.scale.y = 1+lift/0.13;

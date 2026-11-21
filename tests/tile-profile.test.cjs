@@ -18,7 +18,7 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  for(const uv of [[[0,0],[4,0],[4,3],[0,3]],[[0,0],[4,0],[3,3],[1,3]],[[0,0],[4,0],[2,3]]]){
   const s={uv,o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
-  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.055},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
+  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.074},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
    const g=c.make(s,material),p=g.attributes.position.array,m=g.attributes.aM.array;
    assert.ok(p.length>100,'surface must contain physical relief');
    assert.ok(p.every(Number.isFinite));
@@ -43,7 +43,7 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  const c=vm.createContext({THREE:{BufferGeometry:Geometry,Float32BufferAttribute:Attribute}});
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  const s={uv:[[0,0],[20,0],[20,16],[0,16]],o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
- for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.055}]){
+ for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.074}]){
   const overview=c.make(s,material,'overview'),detail=c.make(s,material,'detail');
   assert.ok(overview.index.length/3<=32000,'overview exceeds triangle budget');
   assert.ok(detail.index.length>overview.index.length,'close-up should retain more detail');
@@ -51,21 +51,22 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  }
 });
 
-test('Bavaria matches the supplied dimensions: 35 mm wave, 350 mm course, 5 waves on the 1020 mm useful width',()=>{
+test('Bavaria matches the drawing: 30 mm wave, 44 mm lip, 74 mm profile, 350 mm course, 5 waves on 1020 mm',()=>{
  const s=fs.readFileSync('prototype/index.html','utf8'),a=s.indexOf('/* tile profile */');
  const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;',c);const h=c.h;
  const mid=.2;// середина ряда: валик уже сошёл на нет
  for(const u of [0,.05,.1,.17])for(const v of [.01,.1,.3]){assert.ok(Math.abs(h(u,v)-h(u+.204,v))<1e-10);assert.ok(Math.abs(h(u,v)-h(u,v+.35))<1e-10);assert.ok(Math.abs(h(u,v)-h(u+1.02,v))<1e-10);}
  const lip=h(.102,.35*.06)-h(.102,0);
- assert.ok(Math.abs(h(0,0)-h(.102,0)-.035)<1e-9,'wave height 35 mm');
- assert.ok(Math.abs(lip-.020)<1e-9,'course lip 20 mm');
+ assert.ok(Math.abs(h(0,0)-h(.102,0)-.030)<1e-9,'wave height 30 mm');
+ assert.ok(Math.abs(lip-.044)<1e-9,'course lip 44 mm');
+ assert.ok(Math.abs(h(0,.35*.06)-h(.102,0)-.074)<1e-9,'full profile height 74 mm');
  // широкая плоская площадка между волнами: не меньше 11 см
  for(let u=.0465;u<=.1575;u+=.005) assert.ok(Math.abs(h(u,0)-h(.102,0))<1e-9,'pan must be flat at '+u.toFixed(4));
  assert.ok(h(0,mid)>h(.03,mid) && h(.03,mid)>h(.06,mid),'rounded crest falls into the pan');
  // гребень — почти полукруг: на полпути к краю он ещё выше 80 % высоты,
  // а кривизна по всему гребню (кроме скругления у площадки) направлена вниз
  const base=h(.102,mid);
- assert.ok(h(.021,mid)-base>.8*.035,'crest must be full and convex, not pointed');
+ assert.ok(h(.021,mid)-base>.8*.030,'crest must be full and convex, not pointed');
  assert.ok(h(.044,mid)-base<.001,'crest is narrow: no wider than 88 mm');
  for(let u=.004;u<=.036;u+=.004) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<0,'crest is convex at '+u.toFixed(3));
 });
