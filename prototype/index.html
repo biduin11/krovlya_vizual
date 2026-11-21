@@ -268,7 +268,7 @@ const TYPES = [
 const MATS = {
   tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061 },
   cascade:{ name:'Каскад',    prof:3, per:0.183, height:0.045 },
-  bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.060 },
+  bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.074 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
   falz:   { name:'Фальц',     prof:2, per:0.120, height:0.030 },
@@ -691,7 +691,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v20';
+roofMat.customProgramCacheKey = () => 'roof-profile-v21';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -826,14 +826,14 @@ function tileHeight(u,v){
   return .036*wave+.025*step;
 }
 // Бавария (чертёж производителя): ширина 1135/1020 мм, 4 волны на полезной ширине — шаг 255 мм,
-// волна 30 мм, ступень ряда 30 мм, ряд 350 мм.
+// волна 44 мм, ступень ряда 30 мм (профиль 74 мм), ряд 350 мм.
 // Сечение: выпуклый гребень одной дугой окружности от вершины до перегиба (без плоской вершины
 // и прямых участков), затем скругление дна R60 и плоское дно 36 мм (ширина снята с чертежа).
 // Одни и те же константы идут в сетку (bavariaHeight) и в шейдер (bavariaWave).
 function bavariaSection(){
   // Считается один раз: функция вызывается для каждой вершины сетки.
   if(bavariaSection.cache) return bavariaSection.cache;
-  const P=.255,H=.030,Rt=.060,ft=.018,lip=.030,s=P/2-ft;
+  const P=.255,H=.044,Rt=.060,ft=.018,lip=.030,s=P/2-ft;
   // Две касательные дуги: (Rc+Rt)(1−cos θ) = H, (Rc+Rt)·sin θ = s.
   const theta=2*Math.atan(H/s), Rc=s/Math.sin(theta)-Rt;
   return bavariaSection.cache={P,H,Rc,Rt,ft,lip,theta,a1:Rc*Math.sin(theta),b:P/2-ft};
@@ -1377,7 +1377,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 
 function placeSkylight({group, frame, s, point:[u,v]}){
   needsRender=true;
-  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.047 : 0;
+  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.058 : 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
   frame.scale.y = 1+lift/0.13;

@@ -18,7 +18,7 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  for(const uv of [[[0,0],[4,0],[4,3],[0,3]],[[0,0],[4,0],[3,3],[1,3]],[[0,0],[4,0],[2,3]]]){
   const s={uv,o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
-  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.060},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
+  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
    const g=c.make(s,material),p=g.attributes.position.array,m=g.attributes.aM.array;
    assert.ok(p.length>100,'surface must contain physical relief');
    assert.ok(p.every(Number.isFinite));
@@ -43,7 +43,7 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  const c=vm.createContext({THREE:{BufferGeometry:Geometry,Float32BufferAttribute:Attribute}});
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  const s={uv:[[0,0],[20,0],[20,16],[0,16]],o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
- for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.060}]){
+ for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074}]){
   const overview=c.make(s,material,'overview'),detail=c.make(s,material,'detail');
   assert.ok(overview.index.length/3<=32000,'overview exceeds triangle budget');
   assert.ok(detail.index.length>overview.index.length,'close-up should retain more detail');
@@ -51,7 +51,7 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  }
 });
 
-test('Bavaria: 255 mm pitch, 30 mm wave and step, round convex crest, R60 into a flat pan',()=>{
+test('Bavaria: 255 mm pitch, 44 mm wave, 30 mm step (74 mm profile), round convex crest, R60 into a flat pan',()=>{
  const s=fs.readFileSync('prototype/index.html','utf8'),a=s.indexOf('/* tile profile */');
  const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;globalThis.B=bavariaSection();',c);const h=c.h,B=c.B;
  const mid=.2;// середина ряда: ступень уже сошла на нет
@@ -60,15 +60,16 @@ test('Bavaria: 255 mm pitch, 30 mm wave and step, round convex crest, R60 into a
   assert.ok(Math.abs(h(u,v)-h(u+1.02,v))<1e-10,'4 waves on the 1020 mm useful width');
  }
  const trough=h(.1275,mid);
- assert.ok(Math.abs(h(0,mid)-trough-.030)<1e-9,'wave height 30 mm');
+ assert.ok(Math.abs(h(0,mid)-trough-.044)<1e-9,'wave height 44 mm');
  assert.ok(Math.abs(h(.1275,.35*.06)-h(.1275,0)-.030)<1e-9,'course step 30 mm');
+ assert.ok(Math.abs(h(0,.35*.06)-h(.1275,0)-.074)<1e-9,'full profile height 74 mm');
  // гребень выпуклый от вершины до перегиба: без плоской вершины и прямых участков
  assert.ok(h(0,mid)-h(.012,mid)>.0004,'crest has no flat top');
  for(let u=.002;u<=B.a1-.002;u+=.002) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<-1e-7,'crest is convex at '+u.toFixed(3));
  for(let u=.1095;u<=.1455;u+=.004) assert.ok(Math.abs(h(u,mid)-trough)<1e-9,'flat pan 36 mm');
  assert.ok(Math.abs(B.Rt-.060)<1e-12,'R60 into the pan');
- // самый крутой участок — точка перегиба между дугами, около 30°
- const slope=(h(B.a1-.001,mid)-h(B.a1+.001,mid))/.002;
- assert.ok(Math.abs(Math.atan(slope)*180/Math.PI-30.6)<0.5,'flank angle');
+  // самый крутой участок — точка перегиба между дугами, около 44°
+ const slope=(h(B.a1-.0001,mid)-h(B.a1+.0001,mid))/.0002;
+ assert.ok(Math.abs(Math.atan(slope)*180/Math.PI-43.8)<0.5,'flank angle');
  for(let u=.001;u<.127;u+=.0005){const d1=(h(u,mid)-h(u-.0005,mid))/.0005,d2=(h(u+.0005,mid)-h(u,mid))/.0005;assert.ok(Math.abs(d1-d2)<.05,'no kink at '+u.toFixed(4));}
 });
