@@ -614,7 +614,9 @@ roofMat.onBeforeCompile = (sh) => {
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       {
         // Average the height slope over the pixel footprint instead of sampling the sharp edge.
-        vec2 e = stampedTile() ? clamp(0.65*fwidth(vM),vec2(0.003,0.005),vec2(0.024,0.026)) : vec2(0.0025);
+        // У профнастила грань трапеции на расстоянии уже пикселя: усредняем наклон по пикселю, иначе муар.
+        vec2 e = stampedTile() ? clamp(0.65*fwidth(vM),vec2(0.003,0.005),vec2(0.024,0.026))
+          : uProfile==1 ? clamp(0.75*fwidth(vM),vec2(0.0025),vec2(uPer*0.25)) : vec2(0.0025);
         vec2 fade = roofDetailFade();
         float hu = (hgt(vM+vec2(e.x,0.0)) - hgt(vM-vec2(e.x,0.0)))/(2.0*e.x);
         float hv = (hgt(vM+vec2(0.0,e.y)) - hgt(vM-vec2(0.0,e.y)))/(2.0*e.y);
