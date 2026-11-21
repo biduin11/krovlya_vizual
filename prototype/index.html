@@ -502,11 +502,12 @@ float hCascade(vec2 p){
 float bavariaWave(float u){
   float t = fract(u/uPer);
   float d = min(t,1.0-t)*uPer;
-  return 1.0 - smoothstep(0.018,0.060,d);
+  // Приподнятый косинус: круглая вершина без плато и плавный, без излома, вход во впадину.
+  return 0.5 + 0.5*cos(3.14159265*min(d/0.066,1.0));
 }
 float hBavaria(vec2 p){
   float row = fract(p.y/0.35);
-  float stepProfile = smoothstep(0.0,0.04,row)*(1.0-smoothstep(0.04,1.0,row));
+  float stepProfile = smoothstep(0.0,0.06,row)*(1.0-smoothstep(0.06,1.0,row));
   return 0.035*bavariaWave(p.x) + 0.020*stepProfile;
 }
 float cascadeGrooveDistance(float u){
@@ -610,7 +611,7 @@ roofMat.onBeforeCompile = (sh) => {
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y - 0.12*groove*grooveFade*vReliefFade;
         } else if(stampedTile()){
           float row=fract(vM.y/0.35);
-          float stepTop=uProfile==4 ? 0.04 : 0.018;
+          float stepTop=uProfile==4 ? 0.06 : 0.018;
           float crease=(1.0-smoothstep(stepTop,stepTop+0.044,row))*smoothstep(0.0,0.01,row);
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y;
         } else diffuseColor.rgb *= mix(0.9, mix(0.76,1.0,hN), fade.x);
@@ -671,7 +672,7 @@ roofMat.onBeforeCompile = (sh) => {
       if(uProfile==0 || uProfile==4){
         // Filter the course edge after lighting so the gloss highlight keeps the row visible.
         float footprint=fwidth(vM.y);
-        float stepTop=uProfile==4 ? 0.04 : 0.018;
+        float stepTop=uProfile==4 ? 0.06 : 0.018;
         float crest=uProfile==4 ? bavariaWave(vM.x) : hTile(vec2(vM.x,0.0))/0.036;
         float row=fract(vM.y/0.35-stepTop-0.032*crest*(1.0-vReliefFade));
         float distanceToStep=min(row,1.0-row);
@@ -683,7 +684,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v14';
+roofMat.customProgramCacheKey = () => 'roof-profile-v15';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -823,7 +824,8 @@ function bavariaHeight(u,v){
   const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
   const t=((u/.204)%1+1)%1, d=Math.min(t,1-t)*.204;
   const row=((v/.35)%1+1)%1;
-  return .035*(1-smooth(.018,.060,d))+.020*smooth(0,.04,row)*(1-smooth(.04,1,row));
+  const wave=.5+.5*Math.cos(Math.PI*Math.min(d/.066,1));
+  return .035*wave+.020*smooth(0,.06,row)*(1-smooth(.06,1,row));
 }
 /* end tile profile */
 
@@ -855,7 +857,7 @@ function roofReliefGeometry(s, material, quality='overview'){
   const fractions = straight
     ? (pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
     : material.prof===3 ? [0,.016,.5]
-    : material.prof===4 ? (detailed ? [0,.01,.02,.03,.04,.07,.13,.25,.45,.7] : [0,.015,.04,.13,.45,.75])
+    : material.prof===4 ? (detailed ? [0,.01,.02,.03,.045,.06,.09,.15,.27,.47,.72] : [0,.02,.06,.15,.45,.75])
     : detailed ? [0,.006,.012,.018,.05,.10,.20,.40,.65,.88] : [0,.006,.018,.10,.40,.70];
   for(let row=Math.floor(low/pitch);row*pitch<high;row++) for(const fraction of fractions){
     const v=(row+fraction)*pitch;

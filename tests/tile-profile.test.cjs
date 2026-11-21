@@ -56,7 +56,7 @@ test('Bavaria matches the supplied dimensions: 35 mm wave, 350 mm course, 5 wave
  const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;',c);const h=c.h;
  const mid=.2;// середина ряда: валик уже сошёл на нет
  for(const u of [0,.05,.1,.17])for(const v of [.01,.1,.3]){assert.ok(Math.abs(h(u,v)-h(u+.204,v))<1e-10);assert.ok(Math.abs(h(u,v)-h(u,v+.35))<1e-10);assert.ok(Math.abs(h(u,v)-h(u+1.02,v))<1e-10);}
- const lip=h(.102,.35*.04)-h(.102,0);
+ const lip=h(.102,.35*.06)-h(.102,0);
  assert.ok(Math.abs(h(0,0)-h(.102,0)-.035)<1e-9,'wave height 35 mm');
  assert.ok(Math.abs(lip-.020)<1e-9,'course lip 20 mm');
  // широкая плоская впадина: на 7 см вокруг середины впадины высота волны не меняется
