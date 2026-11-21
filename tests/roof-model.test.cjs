@@ -33,7 +33,7 @@ test('changing material and RAL updates the scene caption immediately', () => {
   const elements = new Map();
   const material = () => ({color:{set(){} }});
   const context = vm.createContext({
-    THREE:{Vector3}, roofSurfaceMeshes:[],
+    THREE:{Vector3}, roofSurfaceMeshes:[], needsRender:false,
     document:{getElementById(id){if(!elements.has(id)) elements.set(id,{});return elements.get(id);}},
     roofMat:material(), trimMat:material(), wallMat:material(), plinthMat:material(),
     frameMat:material(), gutterMat:material(), doorMat:material(),
@@ -47,7 +47,7 @@ test('changing material and RAL updates the scene caption immediately', () => {
 
 test('rapid slider changes build once per frame using the latest state', () => {
   const frames=[];const built=[];
-  const context=vm.createContext({requestAnimationFrame:cb=>frames.push(cb),build:()=>built.push(context.value)});
+  const context=vm.createContext({tileQuality:'detail',requestAnimationFrame:cb=>frames.push(cb),build:()=>built.push(context.value)});
   const scheduling=html.slice(html.indexOf('let pendingBuild'),html.indexOf('// ширина ската'));
   vm.runInContext(scheduling+';scheduleBuild();value=1;scheduleBuild();value=2;',context);
   assert.equal(frames.length,1);
@@ -57,3 +57,25 @@ test('rapid slider changes build once per frame using the latest state', () => {
   assert.equal(frames.length,1);
 });
 
+
+test('mansard eaves remain above 1.8 m at the smallest wall height', () => {
+  const context=vm.createContext({THREE:{Vector3},S:{type:'gambrel',W:14,L:18,H:2.6,A:55,O:.9}});
+  vm.runInContext(modelSource+';globalThis.M=roofModel()',context);
+  assert.ok(context.M.y0>=1.8,'eaves must remain above the minimum clearance');
+  assert.ok(context.M.effectiveOverhang>=.2 && context.M.effectiveOverhang<.9);
+});
+
+test('idle scene renders once and redraws after changes or camera movement',()=>{
+  let frame,renders=0,moved=false;
+  const context=vm.createContext({
+    renderer:{setAnimationLoop(cb){frame=cb},render(){renders++}},
+    controls:{autoRotate:false,update:()=>moved},
+    sky:{position:{copy(){}}},camera:{position:{}},scene:{},needsRender:true
+  });
+  const start=html.lastIndexOf('renderer.setAnimationLoop(');
+  vm.runInContext(html.slice(start,html.indexOf('} catch(error)',start)),context);
+  frame();frame();frame();assert.equal(renders,1);
+  context.needsRender=true;frame();assert.equal(renders,2);
+  moved=true;frame();assert.equal(renders,3);
+  moved=false;context.controls.autoRotate=true;frame();frame();assert.equal(renders,5);
+});

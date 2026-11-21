@@ -25,3 +25,16 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
   assert.ok(maxHeight>.035,'mesh must reach the raised lip');
  }
 });
+
+test('overview mesh respects a 32000 triangle budget even for a large slope',()=>{
+ const html=fs.readFileSync('prototype/index.html','utf8');
+ class Geometry{constructor(){this.attributes={}}setAttribute(k,v){this.attributes[k]=v}setIndex(v){this.index=v}computeBoundingSphere(){}}
+ class Attribute{constructor(array,size){this.array=array;this.itemSize=size}}
+ const c=vm.createContext({THREE:{BufferGeometry:Geometry,Float32BufferAttribute:Attribute}});
+ vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=tileGeometry;',c);
+ const s={uv:[[0,0],[20,0],[20,16],[0,16]],o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
+ const overview=c.make(s,'overview'),detail=c.make(s,'detail');
+ assert.ok(overview.index.length/3<=32000,'overview exceeds triangle budget');
+ assert.ok(detail.index.length>overview.index.length,'close-up should retain more detail');
+ assert.ok(detail.index.length/3<=96000,'close-up exceeds triangle budget');
+});

@@ -137,6 +137,7 @@
     <section>
       <h2>Размеры</h2>
       <div id="sliders"></div>
+      <div id="overhang-note" class="sub" role="status" aria-live="polite"></div>
     </section>
 
     <section>
@@ -317,6 +318,7 @@ function regenEnv(){
 
 const lerpC = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
 function setTime(h, withEnv){
+  needsRender=true;
   const k = (h - 6) / 14;
   const elev = Math.max(3, Math.sin(Math.PI * k) * 60) * Math.PI / 180;
   const az = (-115 + 230 * k) * Math.PI / 180;
@@ -559,16 +561,19 @@ function tileHeight(u,v){
 }
 /* end tile profile */
 
-function tileGeometry(s){
+function tileGeometry(s, quality='overview'){
   const vMax=Math.max(...s.uv.map(p=>p[1]));
   const width=Math.max(...s.uv.map(p=>p[0]))-Math.min(...s.uv.map(p=>p[0]));
-  const columns=Math.max(1,Math.ceil(width/(.183/8)));
+  const detailed=quality==='detail';
+  const fractions=detailed ? [0,.008,.026,.10,.40,.75,1] : [0,.026,.20,.65,1];
   // Concentrate samples on the pressed face instead of uniformly adding polygons.
   const heights=new Set([0,vMax,...s.uv.map(p=>p[1])]);
-  for(let row=0;row*.35<vMax;row++) for(const fraction of [0,.008,.026,.05,.10,.20,.40,.65,.88,1]){
+  for(let row=0;row*.35<vMax;row++) for(const fraction of fractions){
     const v=(row+fraction)*.35;if(v>0 && v<vMax) heights.add(v);
   }
   const rows=[...heights].sort((a,b)=>a-b).filter((v,i,a)=>i===0 || v-a[i-1]>1e-7);
+  const budget=detailed ? 96000 : 32000;
+  const columns=Math.max(1,Math.min(Math.ceil(width/(.183/(detailed?8:4))),Math.floor(budget/(2*(rows.length-1)))));
   const pos=[],nor=[],su=[],sv=[],meters=[],indices=[];
   for(const v of rows){
     const [lo,hi]=spanAt(s,v);
@@ -619,7 +624,11 @@ function orientedBox(lx, ly, lz, X, Yv, center, mat){
 
 // Модель крыши в локальных осях: p — поперёк короткой стороны, q — вдоль длинной
 function roofModel(){
-  const { W, L, H, O } = S;
+  const { W, L, H } = S;
+  // Retain the requested wall height and slope: constrain the horizontal overhang.
+  const lowerTangent=Math.tan(Math.min(75,S.A+35)*Math.PI/180);
+  const maxOverhang=S.type==='gambrel' ? Math.max(.2,Math.min(.9,Math.floor(((H-1.8)/lowerTangent+1e-9)*20)/20)) : .9;
+  const O=Math.min(S.O,maxOverhang);
   const t = Math.tan(S.A*Math.PI/180);
   const short = Math.min(W,L), long = Math.max(W,L);
   const swap = W > L;
@@ -680,13 +689,28 @@ function roofModel(){
       break;
     }
   }
-  return { slopes, walls, ridges, y0, pitchText };
+  return { slopes, walls, ridges, y0, pitchText, effectiveOverhang:O, maxOverhang };
 }
 
 /* ================= сборка ================= */
 const house = new THREE.Group();
 const envGroup = new THREE.Group();
 const roofSurfaceMeshes = [];
+let tileQuality='overview';
+let needsRender=true;
+function refreshRoofDetail(preferred){
+  const ratio=camera.position.distanceTo(controls.target)/Math.max(S.W,S.L);
+  const next=preferred || (ratio<1.4 ? 'detail' : ratio>2 ? 'overview' : tileQuality);
+  if(next===tileQuality) return;
+  tileQuality=next;
+  if(S.mat!=='tile') return;
+  for(const {mesh,s} of roofSurfaceMeshes){
+    mesh.geometry.dispose();mesh.geometry=tileGeometry(s,tileQuality);s.g=mesh.geometry;
+  }
+  needsRender=true;
+}
+let detailTimer;
+controls.addEventListener('end',()=>{clearTimeout(detailTimer);detailTimer=setTimeout(()=>refreshRoofDetail(),180);});
 scene.add(house, envGroup);
 
 function clearGroup(g){ g.traverse(o => { if(o.geometry) o.geometry.dispose(); }); g.clear(); }
@@ -752,7 +776,7 @@ let pendingBuild = false;
 function scheduleBuild(){
   if(pendingBuild) return;
   pendingBuild = true;
-  requestAnimationFrame(() => { pendingBuild = false; build(); });
+  requestAnimationFrame(() => { pendingBuild = false; tileQuality='overview'; build(); });
 }
 
 // ширина ската (интервал u) на высоте v
@@ -769,6 +793,17 @@ function spanAt(s, v){
 }
 
 function build(){
+  const M = roofModel();
+  const corrected=S.O!==M.effectiveOverhang;
+  S.O=M.effectiveOverhang;
+  const overhangInput=document.getElementById('slider-O');
+  if(overhangInput){
+    overhangInput.max=M.maxOverhang;overhangInput.value=S.O;
+    overhangInput.parentElement.querySelector('b').textContent=S.O.toFixed(2)+' м';
+  }
+  const note=document.getElementById('overhang-note');
+  if(note) note.textContent=M.maxOverhang<.9 ? `${corrected ? 'Свес уменьшен. ' : ''}Для этой ломаной крыши свес до ${M.maxOverhang.toFixed(2)} м: карниз остаётся не ниже 1,8 м.` : '';
+  needsRender=true;
   clearGroup(house);
   roofSurfaceMeshes.length=0;
   const { W, L, H, O } = S;
@@ -807,7 +842,6 @@ function build(){
   path.position.set(doorX, 0.007, L/2 + 0.8 + 3.5); path.receiveShadow = true; house.add(path);
 
   // крыша
-  const M = roofModel();
   const lift = new THREE.Vector3(0, 0.04, 0);
   // Шатровые скаты и рёбра используют общие объекты вершин.
   const roofPoints = new Set([...M.slopes.flat(), ...M.ridges.flat()]);
@@ -822,7 +856,7 @@ function build(){
   for(const pts of M.slopes){
     const s = slopeGeometry(pts);
     kit.area += s.area;
-    if(S.mat==='tile'){s.g.dispose();s.g=tileGeometry(s);}
+    if(S.mat==='tile'){s.g.dispose();s.g=tileGeometry(s,tileQuality);}
     const mesh = new THREE.Mesh(s.g, roofMat);
     mesh.userData.tileRelief=S.mat==='tile';
     roofSurfaceMeshes.push({mesh,s});
@@ -991,11 +1025,12 @@ function updateStats(pitchText){
 
 /* ================= внешний вид ================= */
 function applyLook(){
+  needsRender=true;
   for(const {mesh,s} of roofSurfaceMeshes){
     const tile=S.mat==='tile';
     if(mesh.userData.tileRelief!==tile){
       mesh.geometry.dispose();
-      mesh.geometry=tile ? tileGeometry(s) : slopeGeometry(s.pts).g;
+      mesh.geometry=tile ? tileGeometry(s,tileQuality) : slopeGeometry(s.pts).g;
       s.g=mesh.geometry;
       mesh.userData.tileRelief=tile;
     }
@@ -1075,6 +1110,7 @@ function addSlider(parent, s){
   row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
   inp.oninput = () => { S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
+  inp.onchange=()=>requestAnimationFrame(()=>refreshRoofDetail());
   parent.appendChild(row);
 }
 for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
@@ -1113,6 +1149,8 @@ function setView(name='overview'){
   camera.position.copy(center).addScaledVector(direction, Math.min(145,distance*(name==='roof'?.75:1)));
   // Prevent damping from moving the camera after choosing a fixed view.
   const damping = controls.enableDamping; controls.enableDamping=false; controls.update(); controls.enableDamping=damping;
+  refreshRoofDetail(name==='roof' ? 'detail' : 'overview');
+  needsRender=true;
 }
 function resetView(){ setView('overview'); }
 document.getElementById('reset').onclick = resetView;
@@ -1160,6 +1198,7 @@ document.getElementById('export').onclick=()=>{
 
 /* ================= цикл ================= */
 function resize(){
+  needsRender=true;
   const w = view.clientWidth, h = view.clientHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
@@ -1176,14 +1215,18 @@ if(savedConfiguration?.camera){
   camera.position.fromArray(savedConfiguration.camera.position);
   controls.target.fromArray(savedConfiguration.camera.target);
   controls.update();
+  refreshRoofDetail();
 }
 if(location.hash.startsWith('#roof=') && !savedConfiguration) actionStatus.textContent='Ссылка повреждена или имеет неподдерживаемую версию. Открыты стандартные настройки.';
 document.getElementById('loading').remove();
 
 renderer.setAnimationLoop(() => {
-  controls.update();
-  sky.position.copy(camera.position);
-  renderer.render(scene, camera);
+  const moved=controls.update();
+  if(moved || needsRender || controls.autoRotate){
+    sky.position.copy(camera.position);
+    renderer.render(scene, camera);
+    needsRender=false;
+  }
 });
 } catch(error) {
   console.error('Не удалось запустить 3D-визуализатор:', error);
