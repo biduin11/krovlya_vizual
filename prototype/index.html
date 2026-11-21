@@ -533,8 +533,14 @@ bool stampedTile(){ return uProfile==0 || uProfile==3; }
 vec2 roofDetailFade(){
   vec2 footprint = fwidth(vM);
   // Transverse steps are much narrower than the spacing between courses.
-  vec2 detail = 1.0 - smoothstep(vec2(uPer*0.025,0.003),vec2(uPer*0.14,0.025),footprint);
-  return stampedTile() ? detail*vec2(mix(0.42,1.0,vReliefFade),vReliefFade) : detail;
+  if(stampedTile()){
+    // Плавная волна черепицы гаснет, только когда её шаг сжимается до нескольких пикселей.
+    // Затенение волны не зависит от видимости узкой поперечной ступеньки.
+    vec2 detail = 1.0 - smoothstep(vec2(uPer*0.08,0.003),vec2(uPer*0.30,0.025),footprint);
+    return detail*vec2(1.0,vReliefFade);
+  }
+  // У профнастила и фальца острые грани: гасим раньше, иначе муар.
+  return 1.0 - smoothstep(vec2(uPer*0.025,0.003),vec2(uPer*0.14,0.025),footprint);
 }
 `;
 const roofMat = new THREE.MeshPhysicalMaterial({ color:'#45322E', roughness:.3, metalness:.16, clearcoat:.32, clearcoatRoughness:.22, side:THREE.FrontSide, envMapIntensity:.65 });
@@ -627,6 +633,21 @@ roofMat.onBeforeCompile = (sh) => {
         if(stampedTile()) material.clearcoatRoughness = max(material.clearcoatRoughness,0.44);
       #endif
     `)
+    .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+      if(uProfile!=2){
+        // Впадины профиля видят меньше неба: гасим отражение неба и рассеянный свет.
+        // На тёмных RAL именно отражение неба на гребнях делает волну читаемой.
+        float cavityFade = roofDetailFade().x;
+        float hN = clamp(hgt(vM)/uHeight,0.0,1.0);
+        float depth = uProfile==1 ? 0.35 : 0.55;
+        float cavity = mix(1.0, 1.0-depth*(1.0-sqrt(hN)), cavityFade);
+        reflectedLight.indirectDiffuse *= cavity;
+        reflectedLight.indirectSpecular *= cavity;
+        #ifdef USE_CLEARCOAT
+          clearcoatSpecularIndirect *= cavity;
+        #endif
+      }
+    `)
     .replace('#include <opaque_fragment>', `
       if(uProfile==0){
         // Filter the course edge after lighting so the gloss highlight keeps the row visible.
@@ -642,7 +663,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v12';
+roofMat.customProgramCacheKey = () => 'roof-profile-v13';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
