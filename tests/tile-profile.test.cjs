@@ -18,7 +18,7 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  for(const uv of [[[0,0],[4,0],[4,3],[0,3]],[[0,0],[4,0],[3,3],[1,3]],[[0,0],[4,0],[2,3]]]){
   const s={uv,o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
-  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.074},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
+  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.060},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035}]){
    const g=c.make(s,material),p=g.attributes.position.array,m=g.attributes.aM.array;
    assert.ok(p.length>100,'surface must contain physical relief');
    assert.ok(p.every(Number.isFinite));
@@ -43,7 +43,7 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  const c=vm.createContext({THREE:{BufferGeometry:Geometry,Float32BufferAttribute:Attribute}});
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  const s={uv:[[0,0],[20,0],[20,16],[0,16]],o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
- for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.204,height:.074}]){
+ for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.060}]){
   const overview=c.make(s,material,'overview'),detail=c.make(s,material,'detail');
   assert.ok(overview.index.length/3<=32000,'overview exceeds triangle budget');
   assert.ok(detail.index.length>overview.index.length,'close-up should retain more detail');
@@ -51,22 +51,22 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  }
 });
 
-test('Bavaria matches the drawing: 30 mm wave, 44 mm lip, 74 mm profile, 350 mm course, 5 waves on 1020 mm',()=>{
+test('Bavaria matches the drawing: 255 mm pitch, 30 mm wave and step, flat crest and pan, R60 flanks',()=>{
  const s=fs.readFileSync('prototype/index.html','utf8'),a=s.indexOf('/* tile profile */');
- const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;',c);const h=c.h;
- const mid=.2;// середина ряда: валик уже сошёл на нет
- for(const u of [0,.05,.1,.17])for(const v of [.01,.1,.3]){assert.ok(Math.abs(h(u,v)-h(u+.204,v))<1e-10);assert.ok(Math.abs(h(u,v)-h(u,v+.35))<1e-10);assert.ok(Math.abs(h(u,v)-h(u+1.02,v))<1e-10);}
- const lip=h(.102,.35*.06)-h(.102,0);
- assert.ok(Math.abs(h(0,0)-h(.102,0)-.030)<1e-9,'wave height 30 mm');
- assert.ok(Math.abs(lip-.044)<1e-9,'course lip 44 mm');
- assert.ok(Math.abs(h(0,.35*.06)-h(.102,0)-.074)<1e-9,'full profile height 74 mm');
- // широкая плоская площадка между волнами: не меньше 11 см
- for(let u=.0465;u<=.1575;u+=.005) assert.ok(Math.abs(h(u,0)-h(.102,0))<1e-9,'pan must be flat at '+u.toFixed(4));
- assert.ok(h(0,mid)>h(.03,mid) && h(.03,mid)>h(.06,mid),'rounded crest falls into the pan');
- // гребень — почти полукруг: на полпути к краю он ещё выше 80 % высоты,
- // а кривизна по всему гребню (кроме скругления у площадки) направлена вниз
- const base=h(.102,mid);
- assert.ok(h(.021,mid)-base>.8*.030,'crest must be full and convex, not pointed');
- assert.ok(h(.044,mid)-base<.001,'crest is narrow: no wider than 88 mm');
- for(let u=.004;u<=.036;u+=.004) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<0,'crest is convex at '+u.toFixed(3));
+ const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;globalThis.B=bavariaSection();',c);const h=c.h,B=c.B;
+ const mid=.2;// середина ряда: ступень уже сошла на нет
+ for(const u of [0,.05,.1,.17])for(const v of [.01,.1,.3]){
+  assert.ok(Math.abs(h(u,v)-h(u+.255,v))<1e-10);assert.ok(Math.abs(h(u,v)-h(u,v+.35))<1e-10);
+  assert.ok(Math.abs(h(u,v)-h(u+1.02,v))<1e-10,'4 waves on the 1020 mm useful width');
+ }
+ const trough=h(.1275,mid);
+ assert.ok(Math.abs(h(0,mid)-trough-.030)<1e-9,'wave height 30 mm');
+ assert.ok(Math.abs(h(.1275,.35*.06)-h(.1275,0)-.030)<1e-9,'course step 30 mm');
+ for(let u=-.024;u<=.024;u+=.004) assert.ok(Math.abs(h(u,mid)-h(0,mid))<1e-9,'flat crest 48 mm');
+ for(let u=.1095;u<=.1455;u+=.004) assert.ok(Math.abs(h(u,mid)-trough)<1e-9,'flat pan 36 mm');
+ assert.ok(Math.abs(B.R-.060)<1e-12,'R60 flanks');
+ // прямой участок склона под ≈ 29°, профиль без изломов (касательные дуги)
+ const slope=(h(.065,mid)-h(.067,mid))/.002;
+ assert.ok(Math.abs(Math.atan(slope)*180/Math.PI-28.7)<0.5,'flank angle');
+ for(let u=.001;u<.127;u+=.0005){const d1=(h(u,mid)-h(u-.0005,mid))/.0005,d2=(h(u+.0005,mid)-h(u,mid))/.0005;assert.ok(Math.abs(d1-d2)<.05,'no kink at '+u.toFixed(4));}
 });

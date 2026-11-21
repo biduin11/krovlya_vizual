@@ -268,7 +268,7 @@ const TYPES = [
 const MATS = {
   tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061 },
   cascade:{ name:'Каскад',    prof:3, per:0.183, height:0.045 },
-  bavaria:{ name:'Бавария',   prof:4, per:0.204, height:0.074 },
+  bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.060 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
   falz:   { name:'Фальц',     prof:2, per:0.120, height:0.030 },
@@ -468,6 +468,7 @@ scene.add(ground);
 
 /* ---------- материал кровли: процедурный профиль ---------- */
 const U = { uProfile:{ value:0 }, uPer:{ value:MATS.tile.per }, uHeight:{ value:MATS.tile.height }, uViewportHeight:{ value:1 }, uMatteTexture:{ value:false } };
+const BAV = Object.fromEntries(Object.entries(bavariaSection()).map(([k,v])=>[k,v.toFixed(7)]));
 const FRAG_HEAD = NOISE + `
 uniform int uProfile;
 uniform float uPer;
@@ -500,20 +501,24 @@ float hCascade(vec2 p){
 // Бавария: узкий скруглённый гребень, широкая плоская впадина, скруглённый валик ряда.
 // Синхронно с bavariaHeight в JS.
 float bavariaWave(float u){
+  // Сечение по чертежу: плоская вершина, R60, прямой склон, R60, плоское дно.
+  // Константы считает bavariaSection() в JS — форма совпадает с сеткой.
+  const float H = ${BAV.H}, R = ${BAV.R}, FC = ${BAV.fc}, A1 = ${BAV.a1}, A2 = ${BAV.a2}, B = ${BAV.b};
+  const float DROP = ${BAV.drop}, SLOPE = ${BAV.slope};
   float t = fract(u/uPer);
-  float d = min(t,1.0-t)*uPer;
-  // Выпуклый гребень: высота 30 мм, полуширина 42 мм (R ≈ 44,4 мм); плоская площадка ≈ 11 см.
-  // Внизу скругление 4 мм — дуга без излома переходит в площадку.
-  const float H = 0.030, A = 0.042, K = 0.004;
-  const float R = (A*A + H*H)/(2.0*H);
-  float arc = sqrt(max(R*R - d*d, 0.0)) - (R - H);
-  float s = clamp(0.5 - 0.5*arc/K, 0.0, 1.0);
-  return (mix(arc, 0.0, s) + K*s*(1.0 - s))/H;
+  float x = min(t,1.0-t)*uPer;
+  float h;
+  if(x<=FC) h = H;
+  else if(x<=A1) h = H - (R - sqrt(max(R*R-(x-FC)*(x-FC),0.0)));
+  else if(x<=A2) h = H - DROP - (x-A1)*SLOPE;
+  else if(x<=B) h = R - sqrt(max(R*R-(B-x)*(B-x),0.0));
+  else h = 0.0;
+  return h/H;
 }
 float hBavaria(vec2 p){
   float row = fract(p.y/0.35);
   float stepProfile = smoothstep(0.0,0.06,row)*(1.0-smoothstep(0.06,1.0,row));
-  return 0.030*bavariaWave(p.x) + 0.044*stepProfile;
+  return ${BAV.H}*bavariaWave(p.x) + ${BAV.lip}*stepProfile;
 }
 float cascadeGrooveDistance(float u){
   float d = abs(fract(u/uPer)-0.5)*uPer;
@@ -689,7 +694,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v18';
+roofMat.customProgramCacheKey = () => 'roof-profile-v19';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -823,19 +828,34 @@ function tileHeight(u,v){
   const step=smooth(0,.018,row)*(1-smooth(.018,1,row));
   return .036*wave+.025*step;
 }
-// Бавария (чертёж производителя): ширина 1135/1020 мм, 5 волн на полезной ширине — шаг 204 мм,
-// волна 30 мм, валик ряда 44 мм, высота профиля 74 мм, ряд 350 мм.
-// Синхронно с hBavaria в GLSL.
+// Бавария (чертёж производителя): ширина 1135/1020 мм, 4 волны на полезной ширине — шаг 255 мм,
+// волна 30 мм, ступень ряда 30 мм, ряд 350 мм. Сечение: плоская вершина, R60, прямой склон, R60, плоское дно.
+// Ширины плоских участков сняты с чертежа: вершина 48 мм, дно 36 мм.
+// Одни и те же константы идут в сетку (bavariaHeight) и в шейдер (bavariaWave).
+function bavariaSection(){
+  // Считается один раз: функция вызывается для каждой вершины сетки.
+  if(bavariaSection.cache) return bavariaSection.cache;
+  const P=.255,H=.030,R=.060,fc=.024,ft=.018,lip=.030,s=P/2-fc-ft;
+  // Наклон прямого участка: 2R(1−cos θ) + L·sin θ = H, 2R·sin θ + L·cos θ = s.
+  let lo=1e-6,hi=Math.PI/2-1e-6;
+  const err=th=>{const L=(s-2*R*Math.sin(th))/Math.cos(th);return 2*R*(1-Math.cos(th))+L*Math.sin(th)-H;};
+  for(let i=0;i<80;i++){const m=(lo+hi)/2;if(err(m)>0)hi=m;else lo=m;}
+  const th=(lo+hi)/2,L=(s-2*R*Math.sin(th))/Math.cos(th);
+  const a1=fc+R*Math.sin(th),a2=a1+L*Math.cos(th);
+  return bavariaSection.cache={P,H,R,fc,ft,lip,a1,a2,b:P/2-ft,drop:R*(1-Math.cos(th)),slope:Math.tan(th),theta:th,line:L};
+}
 function bavariaHeight(u,v){
+  const B=bavariaSection();
   const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
-  const t=((u/.204)%1+1)%1, d=Math.min(t,1-t)*.204;
+  const t=((u/B.P)%1+1)%1, x=Math.min(t,1-t)*B.P;
+  let h;
+  if(x<=B.fc) h=B.H;
+  else if(x<=B.a1) h=B.H-(B.R-Math.sqrt(Math.max(B.R*B.R-(x-B.fc)**2,0)));
+  else if(x<=B.a2) h=B.H-B.drop-(x-B.a1)*B.slope;
+  else if(x<=B.b) h=B.R-Math.sqrt(Math.max(B.R*B.R-(B.b-x)**2,0));
+  else h=0;
   const row=((v/.35)%1+1)%1;
-  // Выпуклый гребень (высота 30 мм, полуширина 42 мм) со скруглением 4 мм у площадки.
-  const H=.030,A=.042,K=.004,R=(A*A+H*H)/(2*H);
-  const arc=Math.sqrt(Math.max(R*R-d*d,0))-(R-H);
-  const s=Math.max(0,Math.min(1,.5-.5*arc/K));
-  const wave=(arc*(1-s)+K*s*(1-s))/H;
-  return .030*wave+.044*smooth(0,.06,row)*(1-smooth(.06,1,row));
+  return h+B.lip*smooth(0,.06,row)*(1-smooth(.06,1,row));
 }
 /* end tile profile */
 
@@ -1365,7 +1385,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 
 function placeSkylight({group, frame, s, point:[u,v]}){
   needsRender=true;
-  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.058 : 0;
+  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.047 : 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
   frame.scale.y = 1+lift/0.13;
