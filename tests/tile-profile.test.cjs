@@ -62,4 +62,9 @@ test('Bavaria matches the supplied dimensions: 35 mm wave, 350 mm course, 5 wave
  // широкая плоская впадина: на 7 см вокруг середины впадины высота волны не меняется
  for(let u=.067;u<=.137;u+=.01) assert.ok(Math.abs(h(u,0)-h(.102,0))<1e-9);
  assert.ok(h(0,mid)>h(.03,mid) && h(.03,mid)>h(.06,mid),'rounded crest falls into the pan');
+ // гребень выпуклый, как дуга окружности: на полпути к краю он ещё почти полной высоты,
+ // а кривизна по всему гребню (кроме скругления у впадины) направлена вниз
+ const base=h(.102,mid);
+ assert.ok(h(.029,mid)-base>.75*.035,'crest must be full and convex, not pointed');
+ for(let u=.004;u<=.052;u+=.004) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<0,'crest is convex at '+u.toFixed(3));
 });
