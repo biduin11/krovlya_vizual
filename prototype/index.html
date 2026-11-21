@@ -501,17 +501,14 @@ float hCascade(vec2 p){
 // Бавария: узкий скруглённый гребень, широкая плоская впадина, скруглённый валик ряда.
 // Синхронно с bavariaHeight в JS.
 float bavariaWave(float u){
-  // Сечение по чертежу: плоская вершина, R60, прямой склон, R60, плоское дно.
+  // Сечение: выпуклый гребень одной дугой (без плоской вершины), скругление дна R60, плоское дно.
   // Константы считает bavariaSection() в JS — форма совпадает с сеткой.
-  const float H = ${BAV.H}, R = ${BAV.R}, FC = ${BAV.fc}, A1 = ${BAV.a1}, A2 = ${BAV.a2}, B = ${BAV.b};
-  const float DROP = ${BAV.drop}, SLOPE = ${BAV.slope};
+  const float H = ${BAV.H}, RC = ${BAV.Rc}, RT = ${BAV.Rt}, A1 = ${BAV.a1}, B = ${BAV.b};
   float t = fract(u/uPer);
   float x = min(t,1.0-t)*uPer;
   float h;
-  if(x<=FC) h = H;
-  else if(x<=A1) h = H - (R - sqrt(max(R*R-(x-FC)*(x-FC),0.0)));
-  else if(x<=A2) h = H - DROP - (x-A1)*SLOPE;
-  else if(x<=B) h = R - sqrt(max(R*R-(B-x)*(B-x),0.0));
+  if(x<=A1) h = H - (RC - sqrt(max(RC*RC-x*x,0.0)));
+  else if(x<=B) h = RT - sqrt(max(RT*RT-(B-x)*(B-x),0.0));
   else h = 0.0;
   return h/H;
 }
@@ -694,7 +691,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v19';
+roofMat.customProgramCacheKey = () => 'roof-profile-v20';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -829,30 +826,25 @@ function tileHeight(u,v){
   return .036*wave+.025*step;
 }
 // Бавария (чертёж производителя): ширина 1135/1020 мм, 4 волны на полезной ширине — шаг 255 мм,
-// волна 30 мм, ступень ряда 30 мм, ряд 350 мм. Сечение: плоская вершина, R60, прямой склон, R60, плоское дно.
-// Ширины плоских участков сняты с чертежа: вершина 48 мм, дно 36 мм.
+// волна 30 мм, ступень ряда 30 мм, ряд 350 мм.
+// Сечение: выпуклый гребень одной дугой окружности от вершины до перегиба (без плоской вершины
+// и прямых участков), затем скругление дна R60 и плоское дно 36 мм (ширина снята с чертежа).
 // Одни и те же константы идут в сетку (bavariaHeight) и в шейдер (bavariaWave).
 function bavariaSection(){
   // Считается один раз: функция вызывается для каждой вершины сетки.
   if(bavariaSection.cache) return bavariaSection.cache;
-  const P=.255,H=.030,R=.060,fc=.024,ft=.018,lip=.030,s=P/2-fc-ft;
-  // Наклон прямого участка: 2R(1−cos θ) + L·sin θ = H, 2R·sin θ + L·cos θ = s.
-  let lo=1e-6,hi=Math.PI/2-1e-6;
-  const err=th=>{const L=(s-2*R*Math.sin(th))/Math.cos(th);return 2*R*(1-Math.cos(th))+L*Math.sin(th)-H;};
-  for(let i=0;i<80;i++){const m=(lo+hi)/2;if(err(m)>0)hi=m;else lo=m;}
-  const th=(lo+hi)/2,L=(s-2*R*Math.sin(th))/Math.cos(th);
-  const a1=fc+R*Math.sin(th),a2=a1+L*Math.cos(th);
-  return bavariaSection.cache={P,H,R,fc,ft,lip,a1,a2,b:P/2-ft,drop:R*(1-Math.cos(th)),slope:Math.tan(th),theta:th,line:L};
+  const P=.255,H=.030,Rt=.060,ft=.018,lip=.030,s=P/2-ft;
+  // Две касательные дуги: (Rc+Rt)(1−cos θ) = H, (Rc+Rt)·sin θ = s.
+  const theta=2*Math.atan(H/s), Rc=s/Math.sin(theta)-Rt;
+  return bavariaSection.cache={P,H,Rc,Rt,ft,lip,theta,a1:Rc*Math.sin(theta),b:P/2-ft};
 }
 function bavariaHeight(u,v){
   const B=bavariaSection();
   const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
   const t=((u/B.P)%1+1)%1, x=Math.min(t,1-t)*B.P;
   let h;
-  if(x<=B.fc) h=B.H;
-  else if(x<=B.a1) h=B.H-(B.R-Math.sqrt(Math.max(B.R*B.R-(x-B.fc)**2,0)));
-  else if(x<=B.a2) h=B.H-B.drop-(x-B.a1)*B.slope;
-  else if(x<=B.b) h=B.R-Math.sqrt(Math.max(B.R*B.R-(B.b-x)**2,0));
+  if(x<=B.a1) h=B.H-(B.Rc-Math.sqrt(Math.max(B.Rc*B.Rc-x*x,0)));
+  else if(x<=B.b) h=B.Rt-Math.sqrt(Math.max(B.Rt*B.Rt-(B.b-x)**2,0));
   else h=0;
   const row=((v/.35)%1+1)%1;
   return h+B.lip*smooth(0,.06,row)*(1-smooth(.06,1,row));

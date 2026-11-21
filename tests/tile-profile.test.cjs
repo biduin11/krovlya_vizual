@@ -51,7 +51,7 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  }
 });
 
-test('Bavaria matches the drawing: 255 mm pitch, 30 mm wave and step, flat crest and pan, R60 flanks',()=>{
+test('Bavaria: 255 mm pitch, 30 mm wave and step, round convex crest, R60 into a flat pan',()=>{
  const s=fs.readFileSync('prototype/index.html','utf8'),a=s.indexOf('/* tile profile */');
  const c=vm.createContext({});vm.runInContext(s.slice(a,s.indexOf('/* end tile profile */',a))+';globalThis.h=bavariaHeight;globalThis.B=bavariaSection();',c);const h=c.h,B=c.B;
  const mid=.2;// середина ряда: ступень уже сошла на нет
@@ -62,11 +62,13 @@ test('Bavaria matches the drawing: 255 mm pitch, 30 mm wave and step, flat crest
  const trough=h(.1275,mid);
  assert.ok(Math.abs(h(0,mid)-trough-.030)<1e-9,'wave height 30 mm');
  assert.ok(Math.abs(h(.1275,.35*.06)-h(.1275,0)-.030)<1e-9,'course step 30 mm');
- for(let u=-.024;u<=.024;u+=.004) assert.ok(Math.abs(h(u,mid)-h(0,mid))<1e-9,'flat crest 48 mm');
+ // гребень выпуклый от вершины до перегиба: без плоской вершины и прямых участков
+ assert.ok(h(0,mid)-h(.012,mid)>.0004,'crest has no flat top');
+ for(let u=.002;u<=B.a1-.002;u+=.002) assert.ok(h(u-.002,mid)+h(u+.002,mid)-2*h(u,mid)<-1e-7,'crest is convex at '+u.toFixed(3));
  for(let u=.1095;u<=.1455;u+=.004) assert.ok(Math.abs(h(u,mid)-trough)<1e-9,'flat pan 36 mm');
- assert.ok(Math.abs(B.R-.060)<1e-12,'R60 flanks');
- // прямой участок склона под ≈ 29°, профиль без изломов (касательные дуги)
- const slope=(h(.065,mid)-h(.067,mid))/.002;
- assert.ok(Math.abs(Math.atan(slope)*180/Math.PI-28.7)<0.5,'flank angle');
+ assert.ok(Math.abs(B.Rt-.060)<1e-12,'R60 into the pan');
+ // самый крутой участок — точка перегиба между дугами, около 30°
+ const slope=(h(B.a1-.001,mid)-h(B.a1+.001,mid))/.002;
+ assert.ok(Math.abs(Math.atan(slope)*180/Math.PI-30.6)<0.5,'flank angle');
  for(let u=.001;u<.127;u+=.0005){const d1=(h(u,mid)-h(u-.0005,mid))/.0005,d2=(h(u+.0005,mid)-h(u,mid))/.0005;assert.ok(Math.abs(d1-d2)<.05,'no kink at '+u.toFixed(4));}
 });
