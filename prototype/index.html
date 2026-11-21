@@ -108,6 +108,8 @@
   .seg { display: flex; gap: 6px; flex-wrap: wrap; }
   .seg button { flex: 1; padding: 8px 7px; white-space: nowrap; }
   .seg button.on { border-color: var(--accent-dark); background: var(--accent-dark); color: #fff; }
+  /* Профили: две строки по три — черепица и листовые. */
+  #mats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); }
   .seg.small { margin-top: 7px; }
   .seg.small button { padding: 7px 6px; }
   #export { background: var(--warm); border-color: var(--warm); color: #fff; }
@@ -266,6 +268,7 @@ const TYPES = [
 const MATS = {
   tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061 },
   cascade:{ name:'Каскад',    prof:3, per:0.183, height:0.045 },
+  bavaria:{ name:'Бавария',   prof:4, per:0.204, height:0.055 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
   falz:   { name:'Фальц',     prof:2, per:0.120, height:0.030 },
@@ -310,7 +313,7 @@ function decodeConfiguration(encoded){
     const data = JSON.parse(decodeURIComponent(encoded));
     if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
     const state = {};
-    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','c21','prof','falz'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
+    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
     const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],skyPos:[.2,.8]};
     for(const [key,value] of Object.entries(data.state)){
       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
@@ -494,6 +497,18 @@ float hCascade(vec2 p){
   float stepProfile = min(row/0.016,(1.0-row)/0.984);
   return 0.025*rib + 0.020*stepProfile;
 }
+// Бавария: узкий скруглённый гребень, широкая плоская впадина, скруглённый валик ряда.
+// Синхронно с bavariaHeight в JS.
+float bavariaWave(float u){
+  float t = fract(u/uPer);
+  float d = min(t,1.0-t)*uPer;
+  return 1.0 - smoothstep(0.018,0.060,d);
+}
+float hBavaria(vec2 p){
+  float row = fract(p.y/0.35);
+  float stepProfile = smoothstep(0.0,0.04,row)*(1.0-smoothstep(0.04,1.0,row));
+  return 0.035*bavariaWave(p.x) + 0.020*stepProfile;
+}
 float cascadeGrooveDistance(float u){
   float d = abs(fract(u/uPer)-0.5)*uPer;
   return min(abs(d-0.014),abs(d-0.037));
@@ -508,6 +523,7 @@ float hgt(vec2 p){
   if(uProfile==0) return hTile(p);
   if(uProfile==1) return hProf(p);
   if(uProfile==3) return hCascade(p);
+  if(uProfile==4) return hBavaria(p);
   return hFalz(p);
 }
 // The pattern is fixed in metres on the roof and filtered at grazing angles.
@@ -529,7 +545,7 @@ vec3 matteTexture(vec2 uv, vec2 footprint){
   );
   return vec3(0.13*baseGrain+0.08*fineGrain,0.065*grainFade*grainSlope);
 }
-bool stampedTile(){ return uProfile==0 || uProfile==3; }
+bool stampedTile(){ return uProfile==0 || uProfile==3 || uProfile==4; }
 vec2 roofDetailFade(){
   vec2 footprint = fwidth(vM);
   // Transverse steps are much narrower than the spacing between courses.
@@ -564,7 +580,7 @@ roofMat.onBeforeCompile = (sh) => {
   ` + sh.vertexShader
     .replace('#include <begin_vertex>', `#include <begin_vertex>
       vReliefFade = 1.0;
-      if(uProfile==0 || uProfile==3){
+      if(uProfile==0 || uProfile==3 || uProfile==4){
         vec3 basePosition = position - normal*reliefHeight;
         vec3 eyePosition = (modelViewMatrix*vec4(basePosition,1.0)).xyz;
         float incidence = abs(dot(normalize(normalMatrix*normal),normalize(eyePosition)));
@@ -594,7 +610,8 @@ roofMat.onBeforeCompile = (sh) => {
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y - 0.12*groove*grooveFade*vReliefFade;
         } else if(stampedTile()){
           float row=fract(vM.y/0.35);
-          float crease=(1.0-smoothstep(0.018,0.062,row))*smoothstep(0.0,0.01,row);
+          float stepTop=uProfile==4 ? 0.04 : 0.018;
+          float crease=(1.0-smoothstep(stepTop,stepTop+0.044,row))*smoothstep(0.0,0.01,row);
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y;
         } else diffuseColor.rgb *= mix(0.9, mix(0.76,1.0,hN), fade.x);
         if(uProfile==3){
@@ -651,11 +668,12 @@ roofMat.onBeforeCompile = (sh) => {
       }
     `)
     .replace('#include <opaque_fragment>', `
-      if(uProfile==0){
+      if(uProfile==0 || uProfile==4){
         // Filter the course edge after lighting so the gloss highlight keeps the row visible.
         float footprint=fwidth(vM.y);
-        float crest=hTile(vec2(vM.x,0.0))/0.036;
-        float row=fract(vM.y/0.35-0.018-0.032*crest*(1.0-vReliefFade));
+        float stepTop=uProfile==4 ? 0.04 : 0.018;
+        float crest=uProfile==4 ? bavariaWave(vM.x) : hTile(vec2(vM.x,0.0))/0.036;
+        float row=fract(vM.y/0.35-stepTop-0.032*crest*(1.0-vReliefFade));
         float distanceToStep=min(row,1.0-row);
         float feather=max(0.085,footprint/0.35);
         float stepShade=1.0-smoothstep(0.0,feather,distanceToStep);
@@ -665,7 +683,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v13';
+roofMat.customProgramCacheKey = () => 'roof-profile-v14';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -799,11 +817,20 @@ function tileHeight(u,v){
   const step=smooth(0,.018,row)*(1-smooth(.018,1,row));
   return .036*wave+.025*step;
 }
+// Бавария: ширина 1130/1020 мм, шаг волны 204 мм (5 волн на полезной ширине), волна 35 мм, валик ряда 20 мм, ряд 350 мм.
+// Синхронно с hBavaria в GLSL.
+function bavariaHeight(u,v){
+  const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+  const t=((u/.204)%1+1)%1, d=Math.min(t,1-t)*.204;
+  const row=((v/.35)%1+1)%1;
+  return .035*(1-smooth(.018,.060,d))+.020*smooth(0,.04,row)*(1-smooth(.04,1,row));
+}
 /* end tile profile */
 
 // Match the GLSL profiles so highlights follow the displaced surface.
 function roofProfileHeight(u,v,material){
   if(material.prof===0) return tileHeight(u,v);
+  if(material.prof===4) return bavariaHeight(u,v);
   const d = Math.abs(((u/material.per)%1+1)%1-0.5)*material.per;
   const trapezoid = (top,foot) => Math.max(0,Math.min(1,(foot-d)/(foot-top)));
   if(material.prof===1){
@@ -828,6 +855,7 @@ function roofReliefGeometry(s, material, quality='overview'){
   const fractions = straight
     ? (pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
     : material.prof===3 ? [0,.016,.5]
+    : material.prof===4 ? (detailed ? [0,.01,.02,.03,.04,.07,.13,.25,.45,.7] : [0,.015,.04,.13,.45,.75])
     : detailed ? [0,.006,.012,.018,.05,.10,.20,.40,.65,.88] : [0,.006,.018,.10,.40,.70];
   for(let row=Math.floor(low/pitch);row*pitch<high;row++) for(const fraction of fractions){
     const v=(row+fraction)*pitch;
@@ -1215,7 +1243,7 @@ const skylightMeshes = [];
 let tileQuality='overview';
 let needsRender=true;
 // Черепичные профили (Монтеррей, Каскад) имеют два уровня сетки; профнастил и фальц от него не зависят.
-const qualityDependent = () => [0,3].includes(MATS[S.mat].prof);
+const qualityDependent = () => [0,3,4].includes(MATS[S.mat].prof);
 function refreshRoofDetail(preferred){
   const ratio=camera.position.distanceTo(controls.target)/Math.max(S.W,S.L);
   const next=preferred || (ratio<1.4 ? 'detail' : ratio>2 ? 'overview' : tileQuality);
@@ -1325,7 +1353,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 
 function placeSkylight({group, frame, s, point:[u,v]}){
   needsRender=true;
-  const lift = S.mat==='tile' ? 0.048 : 0;
+  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.043 : 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
   frame.scale.y = 1+lift/0.13;

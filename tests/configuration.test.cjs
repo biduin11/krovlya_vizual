@@ -32,7 +32,7 @@ test('skylight positions accept only supported window keys and finite coordinate
 
 test('both new and original roofing profile links retain their profile',()=>{
  const api=load();
- for(const mat of ['tile','cascade','c21','prof','falz']){
+ for(const mat of ['tile','cascade','bavaria','c21','prof','falz']){
   assert.equal(api.decodeConfiguration(api.encodeConfiguration({mat},null)).state.mat,mat);
  }
 });
