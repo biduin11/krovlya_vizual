@@ -231,6 +231,7 @@
       <section>
         <h2>Размеры</h2>
         <div id="sliders"></div>
+        <div id="overhang-note" class="sub" role="status" aria-live="polite"></div>
       </section>
 
       <section>
@@ -417,6 +418,7 @@ function regenEnv(){
 
 const lerpC = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
 function setTime(h, withEnv){
+  needsRender=true;
   const k = (h - 6) / 14;
   const elev = Math.max(3, Math.sin(Math.PI * k) * 60) * Math.PI / 180;
   const az = (-115 + 230 * k) * Math.PI / 180;
@@ -786,7 +788,8 @@ function roofProfileHeight(u,v,material){
   return 0.025*trapezoid(0.055,0.074)+0.020*step;
 }
 
-function roofReliefGeometry(s, material){
+function roofReliefGeometry(s, material, quality='overview'){
+  const detailed = quality==='detail';
   const straight = material.prof===1;
   // For profiled sheets, slice parallel to the ribs so they stay straight on hips.
   const section = straight ? {uv:s.uv.map(([u,v]) => [v,u])} : s;
@@ -794,17 +797,20 @@ function roofReliefGeometry(s, material){
   const high = Math.max(...section.uv.map(p=>p[1]));
   const left = Math.min(...section.uv.map(p=>p[0]));
   const right = Math.max(...section.uv.map(p=>p[0]));
-  const columns = straight ? 1 : Math.max(1,Math.ceil((right-left)/(material.per/12)));
   const heights = new Set(section.uv.map(p=>p[1]));
   const pitch = straight ? material.per : 0.35;
   const fractions = straight
     ? (pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
-    : material.prof===3 ? [0,.016,.5] : [0,.006,.012,.018,.05,.10,.20,.40,.65,.88];
+    : material.prof===3 ? [0,.016,.5]
+    : detailed ? [0,.006,.012,.018,.05,.10,.20,.40,.65,.88] : [0,.006,.018,.10,.40,.70];
   for(let row=Math.floor(low/pitch);row*pitch<high;row++) for(const fraction of fractions){
     const v=(row+fraction)*pitch;
     if(v>low && v<high) heights.add(v);
   }
   const rows=[...heights].sort((a,b)=>a-b).filter((v,i,a)=>i===0 || v-a[i-1]>1e-7);
+  // Черепица: не больше 32 000 треугольников на скат в общем виде и 96 000 вблизи.
+  const budget = detailed ? 96000 : 32000;
+  const columns = straight ? 1 : Math.max(1,Math.min(Math.ceil((right-left)/(material.per/(detailed?12:6))),Math.floor(budget/(2*Math.max(1,rows.length-1)))));
   const pos=[],nor=[],su=[],sv=[],meters=[],relief=[],indices=[];
   for(const row of rows){
     const [lo,hi]=spanAt(section,row);
@@ -1107,7 +1113,11 @@ function addDownspout(gutter, out, overhang){
 
 // Модель крыши в локальных осях: p — поперёк короткой стороны, q — вдоль длинной
 function roofModel(){
-  const { W, L, H, O } = S;
+  const { W, L, H } = S;
+  // Retain the requested wall height and slope: constrain the horizontal overhang.
+  const lowerTangent=Math.tan(Math.min(75,S.A+35)*Math.PI/180);
+  const maxOverhang=S.type==='gambrel' ? Math.max(.2,Math.min(.9,Math.floor(((H-1.8)/lowerTangent+1e-9)*20)/20)) : .9;
+  const O=Math.min(S.O,maxOverhang);
   const t = Math.tan(S.A*Math.PI/180);
   const short = Math.min(W,L), long = Math.max(W,L);
   const swap = W > L;
@@ -1168,7 +1178,7 @@ function roofModel(){
       break;
     }
   }
-  return { slopes, walls, ridges, y0, pitchText };
+  return { slopes, walls, ridges, y0, pitchText, effectiveOverhang:O, maxOverhang };
 }
 
 /* ================= сборка ================= */
@@ -1176,6 +1186,23 @@ const house = new THREE.Group();
 const envGroup = new THREE.Group();
 const roofSurfaceMeshes = [];
 const skylightMeshes = [];
+let tileQuality='overview';
+let needsRender=true;
+// Черепичные профили (Монтеррей, Каскад) имеют два уровня сетки; профнастил и фальц от него не зависят.
+const qualityDependent = () => [0,3].includes(MATS[S.mat].prof);
+function refreshRoofDetail(preferred){
+  const ratio=camera.position.distanceTo(controls.target)/Math.max(S.W,S.L);
+  const next=preferred || (ratio<1.4 ? 'detail' : ratio>2 ? 'overview' : tileQuality);
+  if(next===tileQuality) return;
+  tileQuality=next;
+  if(!qualityDependent()) return;
+  for(const {mesh,s} of roofSurfaceMeshes){
+    mesh.geometry.dispose();mesh.geometry=roofReliefGeometry(s,MATS[S.mat],tileQuality);s.g=mesh.geometry;
+  }
+  needsRender=true;
+}
+let detailTimer;
+controls.addEventListener('end',()=>{clearTimeout(detailTimer);detailTimer=setTimeout(()=>refreshRoofDetail(),180);});
 scene.add(house, envGroup);
 
 function clearGroup(g){ g.traverse(o => { if(o.geometry) o.geometry.dispose(); }); g.clear(); }
@@ -1241,7 +1268,7 @@ let pendingBuild = false;
 function scheduleBuild(){
   if(pendingBuild) return;
   pendingBuild = true;
-  requestAnimationFrame(() => { pendingBuild = false; build(); });
+  requestAnimationFrame(() => { pendingBuild = false; tileQuality='overview'; build(); });
 }
 
 // ширина ската (интервал u) на высоте v
@@ -1271,6 +1298,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 }
 
 function placeSkylight({group, frame, s, point:[u,v]}){
+  needsRender=true;
   const lift = S.mat==='tile' ? 0.048 : 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
@@ -1281,6 +1309,17 @@ function placeSkylight({group, frame, s, point:[u,v]}){
 function build(){
   endSkylightDrag();
   skylightMeshes.length = 0;
+  const M = roofModel();
+  const corrected=S.O!==M.effectiveOverhang;
+  S.O=M.effectiveOverhang;
+  const overhangInput=document.getElementById('slider-O');
+  if(overhangInput){
+    overhangInput.max=M.maxOverhang;overhangInput.value=S.O;
+    overhangInput.parentElement.querySelector('b').textContent=S.O.toFixed(2)+' м';
+  }
+  const note=document.getElementById('overhang-note');
+  if(note) note.textContent=M.maxOverhang<.9 ? `${corrected ? 'Свес уменьшен. ' : ''}Для этой ломаной крыши свес до ${M.maxOverhang.toFixed(2)} м: карниз остаётся не ниже 1,8 м.` : '';
+  needsRender=true;
   clearGroup(house);
   roofSurfaceMeshes.length=0;
   const { W, L, H, O } = S;
@@ -1319,7 +1358,6 @@ function build(){
   path.position.set(doorX, 0.007, L/2 + 0.8 + 3.5); path.receiveShadow = true; house.add(path);
 
   // крыша
-  const M = roofModel();
   const lift = new THREE.Vector3(0, 0.04, 0);
   // Шатровые скаты и рёбра используют общие объекты вершин.
   const roofPoints = new Set([...M.slopes.flat(), ...M.ridges.flat()]);
@@ -1334,7 +1372,7 @@ function build(){
   for(const pts of M.slopes){
     const s = slopeGeometry(pts);
     kit.area += s.area;
-    if(S.mat!=='falz'){s.g.dispose();s.g=roofReliefGeometry(s,MATS[S.mat]);}
+    if(S.mat!=='falz'){s.g.dispose();s.g=roofReliefGeometry(s,MATS[S.mat],tileQuality);}
     const mesh = new THREE.Mesh(s.g, roofMat);
     mesh.userData.roofProfile=S.mat;
     roofSurfaceMeshes.push({mesh,s});
@@ -1490,11 +1528,12 @@ function updateStats(pitchText){
 
 /* ================= внешний вид ================= */
 function applyLook(){
+  needsRender=true;
   for(const {mesh,s} of roofSurfaceMeshes){
     if(mesh.userData.roofProfile!==S.mat){
       endSkylightDrag();
       mesh.geometry.dispose();
-      mesh.geometry=S.mat==='falz' ? slopeGeometry(s.pts).g : roofReliefGeometry(s,MATS[S.mat]);
+      mesh.geometry=S.mat==='falz' ? slopeGeometry(s.pts).g : roofReliefGeometry(s,MATS[S.mat],tileQuality);
       s.g=mesh.geometry;
       mesh.userData.roofProfile=S.mat;
     }
@@ -1577,6 +1616,7 @@ function addSlider(parent, s){
   row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
   inp.oninput = () => { S.skylights = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
+  inp.onchange=()=>requestAnimationFrame(()=>refreshRoofDetail());
   parent.appendChild(row);
 }
 for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
@@ -1687,6 +1727,8 @@ function setView(name='overview'){
   // Prevent damping from moving the camera after choosing a fixed view.
   const damping = controls.enableDamping; controls.enableDamping=false; controls.update(); controls.enableDamping=damping;
   markView(name);
+  refreshRoofDetail(name==='roof' ? 'detail' : 'overview');
+  needsRender=true;
 }
 function resetView(){ setView('overview'); }
 document.getElementById('reset').onclick = resetView;
@@ -1776,6 +1818,7 @@ document.getElementById('export').onclick=()=>{
 
 /* ================= цикл ================= */
 function resize(){
+  needsRender=true;
   const w = view.clientWidth, h = view.clientHeight;
   renderer.setSize(w, h, false);
   U.uViewportHeight.value = canvas.height;
@@ -1794,14 +1837,18 @@ if(savedConfiguration?.camera){
   controls.target.fromArray(savedConfiguration.camera.target);
   controls.update();
   markView();
+  refreshRoofDetail();
 }
 if(location.hash.startsWith('#roof=') && !savedConfiguration) actionStatus.textContent='Ссылка повреждена или имеет неподдерживаемую версию. Открыты стандартные настройки.';
 document.getElementById('loading').remove();
 
 renderer.setAnimationLoop(() => {
-  if(!skylightDrag) controls.update();
-  sky.position.copy(camera.position);
-  renderer.render(scene, camera);
+  const moved=!skylightDrag && controls.update();
+  if(moved || needsRender || controls.autoRotate){
+    sky.position.copy(camera.position);
+    renderer.render(scene, camera);
+    needsRender=false;
+  }
 });
 } catch(error) {
   console.error('Не удалось запустить 3D-визуализатор:', error);
