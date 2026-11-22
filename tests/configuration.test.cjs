@@ -15,6 +15,14 @@ test('configuration round trips all options and camera',()=>{
  const decoded=api.decodeConfiguration(api.encodeConfiguration(state,camera));
  assert.deepEqual(JSON.parse(JSON.stringify(decoded)),{state,camera});
 });
+test('standing seam pan variants survive links and reject unsupported variants',()=>{
+ const api=load();
+ for(const falzPan of ['plain','ribs','narrow','wide']){
+  const state={mat:'falz',falzPan};
+  assert.equal(api.decodeConfiguration(api.encodeConfiguration(state,null)).state.falzPan,falzPan);
+ }
+ assert.equal(api.decodeConfiguration(api.encodeConfiguration({mat:'falz',falzPan:'invalid'},null)).state.falzPan,undefined);
+});
 test('untrusted configurations discard invalid values and unknown properties',()=>{
  const api=load();const result=api.decodeConfiguration(encodeURIComponent(JSON.stringify({v:1,state:{type:'invalid',W:100,L:8,H:null,A:'55',trees:'false',ral:'<script>',skyN:1.5,mat:'falz',unknown:1},camera:{position:[Infinity,0,0],target:[0,0,0]}})));
  assert.equal(JSON.stringify(result.state),JSON.stringify({L:8,mat:'falz'}));assert.equal(result.camera,null);
@@ -32,7 +40,7 @@ test('skylight positions accept only supported window keys and finite coordinate
 
 test('both new and original roofing profile links retain their profile',()=>{
  const api=load();
- for(const mat of ['tile','cascade','bavaria','c21','prof','falz']){
+ for(const mat of ['tile','cascade','bavaria','c21','prof','falz','falznastil']){
   assert.equal(api.decodeConfiguration(api.encodeConfiguration({mat},null)).state.mat,mat);
  }
 });

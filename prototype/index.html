@@ -205,6 +205,10 @@
       <section>
         <h2>Профиль кровли</h2>
         <div class="seg" id="mats"></div>
+        <div id="falz-options" hidden>
+          <h3>Полка фальцевой панели</h3>
+          <div class="seg small" id="falz-pan"></div>
+        </div>
         <div class="seg small" id="coats"></div>
       </section>
 
@@ -256,7 +260,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
 /* ================= данные ================= */
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
-            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round' };
+            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain' };
 
 const TYPES = [
   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
@@ -271,7 +275,8 @@ const MATS = {
   bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.074 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
-  falz:   { name:'Фальц',     prof:2, per:0.120, height:0.030 },
+  falz:   { name:'Фальц',     prof:2, per:0.515, height:0.030 },
+  falznastil:{ name:'Фальцнастил', prof:5, per:0.510, height:0.030 },
 };
 const COATS = {
   gloss:{ name:'Глянец',  r:0.27, m:0.16 },
@@ -313,7 +318,7 @@ function decodeConfiguration(encoded){
     const data = JSON.parse(decodeURIComponent(encoded));
     if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
     const state = {};
-    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
+    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
     const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],skyPos:[.2,.8]};
     for(const [key,value] of Object.entries(data.state)){
       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
@@ -467,10 +472,14 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 /* ---------- материал кровли: процедурный профиль ---------- */
-const U = { uProfile:{ value:0 }, uPer:{ value:MATS.tile.per }, uHeight:{ value:MATS.tile.height }, uViewportHeight:{ value:1 }, uMatteTexture:{ value:false } };
+const U = { uProfile:{ value:0 }, uPer:{ value:MATS.tile.per }, uHeight:{ value:MATS.tile.height }, uViewportHeight:{ value:1 }, uMatteTexture:{ value:false }, uFalzPan:{ value:0 } };
 const BAV = Object.fromEntries(Object.entries(bavariaSection()).map(([k,v])=>[k,v.toFixed(7)]));
+// Generate the seam shader from the same cross-section used by the physical mesh.
+const FALZNASTIL = falznastilSection();
+const FALZ = falzSection();
 const FRAG_HEAD = NOISE + `
 uniform int uProfile;
+uniform int uFalzPan;
 uniform float uPer;
 uniform float uHeight;
 uniform bool uMatteTexture;
@@ -522,17 +531,31 @@ float cascadeGrooveDistance(float u){
   return min(abs(d-0.014),abs(d-0.037));
 }
 float hFalz(vec2 p){
-  float t = fract(p.x/0.55);
-  float d = min(t,1.0-t)*0.55;
-  float r = 1.0 - smoothstep(0.0,0.04,d);
-  return 0.03*r*r;
+  float t=fract(p.x/uPer),d=min(t,1.0-t)*uPer;
+  float height=0.001;
+  float delta=abs(d-0.1716666667);
+  if(uFalzPan==1 && delta<0.004) height+=0.003*(0.5+0.5*cos(3.14159265*delta/0.004));
+  else if(uFalzPan==2) height+=0.002*(1.0-smoothstep(0.018,0.020,delta));
+  else if(uFalzPan==3) height+=0.002*smoothstep(0.1955,0.1975,d);
+  ${FALZ.map(([x,h],i,a)=>i===0 ? '' : `if(d>=${a[i-1][0].toFixed(5)} && d<=${x.toFixed(5)}) height=mix(${a[i-1][1].toFixed(5)},${h.toFixed(5)},clamp((d-${a[i-1][0].toFixed(5)})/${(x-a[i-1][0]).toFixed(5)},0.0,1.0));`).join('\n')}
+  return height;
+}
+float hFalznastil(vec2 p){
+  float d=min(fract(p.x/uPer),1.0-fract(p.x/uPer))*uPer;
+  float groove=min(abs(d-0.105),abs(d-0.205));
+  float height=0.001-0.0008*(1.0-smoothstep(0.0005,0.002,groove));
+  ${FALZNASTIL.map(([x,h],i,a)=>i===0 ? '' : `if(d>=${a[i-1][0].toFixed(5)} && d<=${x.toFixed(5)}) height=mix(${a[i-1][1].toFixed(5)},${h.toFixed(5)},clamp((d-${a[i-1][0].toFixed(5)})/${(x-a[i-1][0]).toFixed(5)},0.0,1.0));`).join('\n')}
+  return height;
 }
 float hgt(vec2 p){
-  if(uProfile==0) return hTile(p);
-  if(uProfile==1) return hProf(p);
-  if(uProfile==3) return hCascade(p);
-  if(uProfile==4) return hBavaria(p);
-  return hFalz(p);
+  float height=0.0;
+  if(uProfile==0) height=hTile(p);
+  else if(uProfile==1) height=hProf(p);
+  else if(uProfile==3) height=hCascade(p);
+  else if(uProfile==4) height=hBavaria(p);
+  else if(uProfile==5) height=hFalznastil(p);
+  else height=hFalz(p);
+  return height;
 }
 // The pattern is fixed in metres on the roof and filtered at grazing angles.
 vec3 matteTexture(vec2 uv, vec2 footprint){
@@ -569,6 +592,7 @@ vec2 roofDetailFade(){
 `;
 const roofMat = new THREE.MeshPhysicalMaterial({ color:'#45322E', roughness:.3, metalness:.16, clearcoat:.32, clearcoatRoughness:.22, side:THREE.FrontSide, envMapIntensity:.65 });
 roofMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uFalzPan = U.uFalzPan;
   sh.uniforms.uProfile = U.uProfile;
   sh.uniforms.uPer = U.uPer;
   sh.uniforms.uHeight = U.uHeight;
@@ -635,29 +659,37 @@ roofMat.onBeforeCompile = (sh) => {
         float resolved = stampedTile() ? min(fade.x,fade.y) : fade.x;
         roughnessFactor = mix(max(roughnessFactor,0.40),roughnessFactor,resolved);
         if(stampedTile()) roughnessFactor = max(roughnessFactor,mix(0.36,0.47,1.0-resolved));
+        if(uProfile==2) roughnessFactor=max(roughnessFactor,0.44);
       }`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       {
         // Average the height slope over the pixel footprint instead of sampling the sharp edge.
         // У профнастила грань трапеции на расстоянии уже пикселя: усредняем наклон по пикселю, иначе муар.
         vec2 e = stampedTile() ? clamp(0.65*fwidth(vM),vec2(0.003,0.005),vec2(0.024,0.026))
-          : uProfile==1 ? clamp(0.75*fwidth(vM),vec2(0.0025),vec2(uPer*0.25)) : vec2(0.0025);
+          : uProfile==1 ? clamp(0.75*fwidth(vM),vec2(0.0025),vec2(uPer*0.25))
+          : (uProfile==2 || uProfile==5) ? clamp(0.75*fwidth(vM),vec2(0.0015),vec2(0.015)) : vec2(0.0025);
         vec2 fade = roofDetailFade();
         float hu = (hgt(vM+vec2(e.x,0.0)) - hgt(vM-vec2(e.x,0.0)))/(2.0*e.x);
         float hv = (hgt(vM+vec2(0.0,e.y)) - hgt(vM-vec2(0.0,e.y)))/(2.0*e.y);
-        float strength=stampedTile() ? 0.68 : (uProfile==2 ? 1.6 : 1.0);
+        float strength=stampedTile() ? 0.68 : 1.0;
         vec2 slope = vec2(hu,hv)*fade*strength+coatingGrain.yz;
         normal = normalize(normal - (slope.x*normalize(vSU) + slope.y*normalize(vSV))*faceDirection);
+        if(uProfile==2){
+          vec3 dx=dFdx(normal),dy=dFdy(normal);
+          float variance=min(0.20,0.5*(dot(dx,dx)+dot(dy,dy)));
+          roughnessFactor=sqrt(min(1.0,roughnessFactor*roughnessFactor+variance));
+        }
       }`)
     .replace('#include <clearcoat_normal_fragment_maps>', `#include <clearcoat_normal_fragment_maps>
       #ifdef USE_CLEARCOAT
         if(stampedTile()) clearcoatNormal = normalize(mix(clearcoatNormal,normal,0.30));
-        else if(uProfile!=2) clearcoatNormal = normal;
+        else clearcoatNormal = normal;
       #endif
     `)
     .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
       #ifdef USE_CLEARCOAT
         if(stampedTile()) material.clearcoatRoughness = max(material.clearcoatRoughness,0.44);
+        if(uProfile==2) material.clearcoatRoughness=max(material.clearcoatRoughness,0.55);
       #endif
     `)
     .replace('#include <aomap_fragment>', `#include <aomap_fragment>
@@ -691,7 +723,7 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v21';
+roofMat.customProgramCacheKey = () => 'roof-profile-v29-standing-seam-pans';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
@@ -816,6 +848,44 @@ function slopeGeometry(ptsIn){
 }
 
 /* tile profile */
+// Assembled standing seam: one narrow rolled lock per 515 mm panel.
+function falzSection(){return [[0,.030],[.002,.030],[.004,.027],[.005,.008],[.008,.001],[.012,.001]];}
+function falzHeight(u,v,pan='plain'){
+  const t=((u/.515)%1+1)%1,d=Math.min(t,1-t)*.515;
+  const section=falzSection();
+  for(let i=1;i<section.length;i++){
+    const [x,h]=section[i],[px,ph]=section[i-1];
+    if(d<=x) return ph+(h-ph)*Math.max(0,Math.min(1,(d-px)/(x-px)));
+  }
+  const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+  const delta=Math.abs(d-.515/3);
+  if(pan==='ribs' && delta<.004) return .001+.003*(.5+.5*Math.cos(Math.PI*delta/.004));
+  if(pan==='narrow') return .001+.002*(1-smooth(.018,.020,delta));
+  if(pan==='wide') return .001+.002*smooth(.1955,.1975,d);
+  return .001;
+}
+function falzSamples(pan){
+  const c=.515/3;
+  return falzSection().map(p=>p[0]).concat(pan==='ribs' ? [c-.004,c-.002,c,c+.002,c+.004]
+    : pan==='narrow' ? [c-.020,c-.018,c,c+.018,c+.020] : pan==='wide' ? [.1955,.1975] : [],[.2575]);
+}
+// Approximate proportions from the reference photo: 510 mm pan pitch and 30 mm lock.
+// Distances from the seam centre in metres; shared by mesh sampling and GLSL.
+function falznastilSection(){
+  // Two raised ribs flank a narrow channel that reaches the pan level.
+  return [[0,.001],[.004,.001],[.007,.030],[.012,.030],[.017,.026],[.020,.025],[.027,.001],[.034,.001]];
+}
+function falznastilHeight(u,v){
+  const pitch=.510,t=((u/pitch)%1+1)%1,d=Math.min(t,1-t)*pitch;
+  const section=falznastilSection();
+  for(let i=1;i<section.length;i++){
+    const [x,h]=section[i],[prevX,prevH]=section[i-1];
+    if(d<=x) return prevH+(h-prevH)*Math.max(0,Math.min(1,(d-prevX)/(x-prevX)));
+  }
+  const groove=Math.min(Math.abs(d-.105),Math.abs(d-.205));
+  const k=Math.max(0,Math.min(1,(groove-.0005)/.0015));
+  return .001-.0008*(1-k*k*(3-2*k));
+}
 // Metres: pressed wave + a short upstand at each 350 mm course.
 // Keep in sync with hTile in the fragment shader.
 function tileHeight(u,v){
@@ -853,6 +923,8 @@ function bavariaHeight(u,v){
 
 // Match the GLSL profiles so highlights follow the displaced surface.
 function roofProfileHeight(u,v,material){
+  if(material.prof===2) return falzHeight(u,v,material.pan);
+  if(material.prof===5) return falznastilHeight(u,v);
   if(material.prof===0) return tileHeight(u,v);
   if(material.prof===4) return bavariaHeight(u,v);
   const d = Math.abs(((u/material.per)%1+1)%1-0.5)*material.per;
@@ -867,7 +939,7 @@ function roofProfileHeight(u,v,material){
 
 function roofReliefGeometry(s, material, quality='overview'){
   const detailed = quality==='detail';
-  const straight = material.prof===1;
+  const straight = material.prof===1 || material.prof===2 || material.prof===5;
   // For profiled sheets, slice parallel to the ribs so they stay straight on hips.
   const section = straight ? {uv:s.uv.map(([u,v]) => [v,u])} : s;
   const low = Math.min(...section.uv.map(p=>p[1]));
@@ -877,7 +949,9 @@ function roofReliefGeometry(s, material, quality='overview'){
   const heights = new Set(section.uv.map(p=>p[1]));
   const pitch = straight ? material.per : 0.35;
   const fractions = straight
-    ? (pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
+    ? (material.prof===2 ? falzSamples(material.pan).flatMap(x=>[x/pitch,1-x/pitch]) : material.prof===5
+      ? [...falznastilSection().map(p=>p[0]),.065,.085,.103,.105,.107,.135,.165,.185,.203,.205,.207,.230,pitch/2].flatMap(x=>[x/pitch,1-x/pitch])
+      : pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
     : material.prof===3 ? [0,.016,.5]
     : material.prof===4 ? (detailed ? [0,.01,.02,.03,.045,.06,.09,.15,.27,.47,.72] : [0,.02,.06,.15,.45,.75])
     : detailed ? [0,.006,.012,.018,.05,.10,.20,.40,.65,.88] : [0,.006,.018,.10,.40,.70];
@@ -1450,9 +1524,10 @@ function build(){
   for(const pts of M.slopes){
     const s = slopeGeometry(pts);
     kit.area += s.area;
-    if(S.mat!=='falz'){s.g.dispose();s.g=roofReliefGeometry(s,MATS[S.mat],tileQuality);}
+    s.g.dispose();s.g=roofReliefGeometry(s,{...MATS[S.mat],pan:S.falzPan},tileQuality);
     const mesh = new THREE.Mesh(s.g, roofMat);
     mesh.userData.roofProfile=S.mat;
+    mesh.userData.roofPan=S.falzPan;
     roofSurfaceMeshes.push({mesh,s});
     mesh.receiveShadow = true;
     const backing = new THREE.Mesh(flatGeometry(s.pts), roofBackingMat);
@@ -1606,14 +1681,16 @@ function updateStats(pitchText){
 
 /* ================= внешний вид ================= */
 function applyLook(){
+  document.getElementById('falz-options').hidden = S.mat!=='falz';
   needsRender=true;
   for(const {mesh,s} of roofSurfaceMeshes){
-    if(mesh.userData.roofProfile!==S.mat){
+    if(mesh.userData.roofProfile!==S.mat || (S.mat==='falz' && mesh.userData.roofPan!==S.falzPan)){
       endSkylightDrag();
       mesh.geometry.dispose();
-      mesh.geometry=S.mat==='falz' ? slopeGeometry(s.pts).g : roofReliefGeometry(s,MATS[S.mat],tileQuality);
+      mesh.geometry=roofReliefGeometry(s,{...MATS[S.mat],pan:S.falzPan},tileQuality);
       s.g=mesh.geometry;
       mesh.userData.roofProfile=S.mat;
+      mesh.userData.roofPan=S.falzPan;
     }
   }
   for(const skylight of skylightMeshes) placeSkylight(skylight);
@@ -1626,6 +1703,7 @@ function applyLook(){
   roofMat.clearcoatRoughness = S.coat === 'gloss' ? .2 : .5;
   roofMat.metalness = trimMat.metalness = c.m;
   U.uProfile.value = MATS[S.mat].prof;
+  U.uFalzPan.value = ['plain','ribs','narrow','wide'].indexOf(S.falzPan);
   U.uPer.value = MATS[S.mat].per;
   U.uHeight.value = MATS[S.mat].height;
   U.uMatteTexture.value = S.coat==='matt';
@@ -1657,6 +1735,7 @@ function segment(el, items, key, onChange, html){
 segment(document.getElementById('types'), TYPES.map(t => [t.id, t.name]), 'type', build,
   (id, label) => { const t = TYPES.find(x => x.id === id); return `<svg viewBox="0 0 42 30">${t.icon}</svg>${label}<small>${t.n} ${t.n===1?'скат':'ската'}</small>`; });
 segment(document.getElementById('mats'),  Object.entries(MATS).map(([k,v]) => [k, v.name]),  'mat',  applyLook);
+segment(document.getElementById('falz-pan'), [['plain','Гладкая'],['ribs','Два ребра'],['narrow','Две полосы'],['wide','Одна полоса']], 'falzPan', applyLook);
 segment(document.getElementById('coats'), Object.entries(COATS).map(([k,v]) => [k, v.name]), 'coat', applyLook);
 segment(document.getElementById('frames'), FRAMES.map((f,i) => [i, f[1]]), 'frames', applyLook);
 
