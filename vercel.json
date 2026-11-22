@@ -1,0 +1,9 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "prototype",
+  "redirects": [
+    { "source": "/prototype", "destination": "/", "permanent": false },
+    { "source": "/prototype/index.html", "destination": "/", "permanent": false }
+  ]
+}
