@@ -10,6 +10,26 @@ class Vector3 {
   constructor(x=0,y=0,z=0){ Object.assign(this,{x,y,z}); }
   add(v){ this.x+=v.x; this.y+=v.y; this.z+=v.z; return this; }
 }
+
+test('roof vent fits a small mansard when preferred heights miss the usable interval', () => {
+  const context = vm.createContext({
+    THREE:{Vector3}, S:{type:'gambrel',W:5,L:5,H:3.2,A:10,O:.2}, skylightMeshes:[]
+  });
+  const spanSource = html.slice(html.indexOf('function spanAt('),html.indexOf('function placeSkylight('));
+  const ventSource = html.slice(html.indexOf('function overlapsVent('),html.indexOf('function addRoofVent('));
+  vm.runInContext(modelSource+spanSource+ventSource+';globalThis.M=roofModel();',context);
+  const slopes = context.M.slopes.map(pts => {
+    const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),zs=pts.map(p=>p.z);
+    const top=Math.hypot(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys));
+    const width=Math.max(...zs)-Math.min(...zs);
+    return {n:{x:1,z:0},uv:[[0,0],[width,0],[width,top],[0,top]]};
+  });
+  const vent=context.findRoofVent(slopes);
+  assert.ok(vent,'enabled vent must be placed on an available slope');
+  assert.ok(vent.point.every(Number.isFinite));
+  const top=Math.max(...vent.s.uv.map(([,v])=>v));
+  assert.ok(vent.point[1]>=1.2 && vent.point[1]<=top-.52);
+});
 for (const type of ['shed','gable','hip','pyramid','gambrel']) {
   test(`${type}: roof lift preserves shape and eave detection across parameter limits`, () => {
     for(const [W,L] of [[8,10],[14,5],[5,5],[14,18]]) for(const A of [10,30,55]) for(const O of [.2,.9]) {

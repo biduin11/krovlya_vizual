@@ -52,3 +52,11 @@ test('ridge style is preserved in shared links and unknown styles are ignored',(
  }
  assert.equal(api.decodeConfiguration(api.encodeConfiguration({ridgeStyle:'invalid'},null)).state.ridgeStyle,undefined);
 });
+
+test('roof vent keeps its boolean state in shared links',()=>{
+ const api=load();
+ for(const vent of [true,false]){
+  assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent},null)).state.vent,vent);
+ }
+ assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent:'true'},null)).state.vent,undefined);
+});

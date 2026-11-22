@@ -260,7 +260,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
 /* ================= данные ================= */
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
-            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain' };
+            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', vent:false };
 
 const TYPES = [
   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
@@ -326,7 +326,7 @@ function decodeConfiguration(encoded){
         const [lo,hi]=ranges[key];
         if(value>=lo && value<=hi && (!['facade','plinth','frames','skyN'].includes(key) || Number.isInteger(value))) state[key]=value;
       }
-      if(['trims','snow','gutter','trees'].includes(key) && typeof value === 'boolean') state[key]=value;
+      if(['trims','snow','gutter','trees','vent'].includes(key) && typeof value === 'boolean') state[key]=value;
     }
     const skylights = data.state.skylights;
     if(skylights && typeof skylights === 'object' && !Array.isArray(skylights)){
@@ -1338,6 +1338,7 @@ const house = new THREE.Group();
 const envGroup = new THREE.Group();
 const roofSurfaceMeshes = [];
 const skylightMeshes = [];
+let roofVent = null;
 let tileQuality='overview';
 let needsRender=true;
 // Черепичные профили (Монтеррей, Каскад) имеют два уровня сетки; профнастил и фальц от него не зависят.
@@ -1458,9 +1459,69 @@ function placeSkylight({group, frame, s, point:[u,v]}){
   frame.position.copy(s.n).multiplyScalar(0.08-lift/2);
 }
 
+function overlapsVent([u,v], [ventU,ventV]){
+  return Math.abs(u-ventU)<skylightHalfWidth+0.43 &&
+         Math.abs(v-ventV)<skylightHalfLength+0.50;
+}
+
+function findRoofVent(slopes){
+  // Prefer the slopes facing the initial view, with enough room above the snow guards.
+  const facing = ({n}) => 0.78*n.x+0.95*n.z;
+  for(const s of slopes.slice().sort((a,b)=>facing(b)-facing(a))){
+    const top = Math.max(...s.uv.map(([,v])=>v));
+    const minV = 1.2, maxV = top-0.52;
+    if(maxV<minV) continue;
+    for(const fraction of [0.73,0.61,0.86,0.49]){
+      const v = Math.max(minV,Math.min(maxV,top*fraction));
+      const [lowStart,highStart] = spanAt(s,v-0.37);
+      const [lowEnd,highEnd] = spanAt(s,v+0.37);
+      const min = Math.max(lowStart,lowEnd)+0.40;
+      const max = Math.min(highStart,highEnd)-0.40;
+      if(!(min<=max)) continue;
+      for(const offset of [0.68,0.32,0.92,0.08,0.50]){
+        const point = [min+(max-min)*offset,v];
+        if(!skylightMeshes.some(w=>w.s===s && overlapsVent(w.point,point))) return {s,point};
+      }
+    }
+  }
+  return null;
+}
+
+function addRoofVent({s,point:[u,v]}){
+  const base = s.o.clone().addScaledVector(s.U,u).addScaledVector(s.V,v);
+  const flashingHeight = MATS.bavaria.height+0.005;
+  const flashingCenter = base.clone().addScaledVector(s.n,flashingHeight/2);
+  house.add(orientedBox(0.54,flashingHeight,0.66,s.U,s.n,flashingCenter,trimMat));
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.182,0.215,0.048,32),trimMat);
+  collar.position.copy(base).addScaledVector(s.n,flashingHeight+0.009);
+  collar.quaternion.setFromUnitVectors(Y,s.n);
+  collar.scale.z = 1.14;
+  collar.castShadow = collar.receiveShadow = true;
+  house.add(collar);
+
+  // Vertical duct with a rounded base, tapered stem, louvres and a rain cap.
+  const section = [
+    [0,-0.12],[0.108,-0.12],[0.108,0.015],[0.145,0.035],[0.161,0.090],
+    [0.169,0.143],[0.165,0.183],[0.165,0.192],[0.153,0.197],
+    [0.166,0.202],[0.163,0.247],[0.146,0.286],[0.119,0.315],
+    [0.100,0.337],[0.096,0.408],[0.094,0.418],[0.122,0.638],
+    [0.151,0.638],[0.151,0.652],[0.103,0.655]
+  ];
+  for(let i=0;i<3;i++){
+    const y=0.678+i*0.025;
+    section.push([0.103,y-0.010],[0.120,y-0.004],[0.147,y],[0.147,y+0.007],[0.103,y+0.008]);
+  }
+  section.push([0.105,0.750],[0.150,0.751],[0.150,0.765],[0.146,0.781],[0.131,0.793],[0.011,0.834],[0,0.836]);
+  const body = new THREE.Mesh(new THREE.LatheGeometry(section.map(([r,h])=>new THREE.Vector2(r,h)),40),trimMat);
+  body.position.copy(base);
+  body.castShadow = body.receiveShadow = true;
+  house.add(body);
+}
+
 function build(){
   endSkylightDrag();
   skylightMeshes.length = 0;
+  roofVent = null;
   const M = roofModel();
   const corrected=S.O!==M.effectiveOverhang;
   S.O=M.effectiveOverhang;
@@ -1649,6 +1710,11 @@ function build(){
     }
   }
 
+  if(S.vent){
+    roofVent = findRoofVent(infos);
+    if(roofVent) addRoofVent(roofVent);
+  }
+
   for(const pts of M.walls){
     const w = new THREE.Mesh(flatGeometry(pts), wallMat);
     w.castShadow = w.receiveShadow = true; house.add(w);
@@ -1764,7 +1830,7 @@ function toggles(el, list){
     el.appendChild(l);
   }
 }
-toggles(document.getElementById('toggles'), [['trims','Торцевые и карнизные планки'],['snow','Снегозадержатели'],['gutter','Водосточная система']]);
+toggles(document.getElementById('toggles'), [['trims','Торцевые и карнизные планки'],['snow','Снегозадержатели'],['gutter','Водосточная система'],['vent','Вентиляционный выход']]);
 toggles(document.getElementById('envtoggles'), [['trees','Деревья']]);
 
 function addSlider(parent, s){
@@ -1845,6 +1911,7 @@ canvas.addEventListener('pointermove', event => {
   }
   const u = THREE.MathUtils.clamp(delta.dot(s.U), min, max);
   const point = [u, v];
+  if(roofVent?.s===s && overlapsVent(point,roofVent.point)) return;
   if(skylightMeshes.some(other => other !== skylight && other.s === s && skylightsOverlap(point, other.point))) return;
   skylight.point = S.skylights[skylight.key] = point;
   placeSkylight(skylight);
