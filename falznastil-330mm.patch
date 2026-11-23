@@ -1,0 +1,143 @@
+From 6641fa736044933decc7b99df19a66af13fa03cc Mon Sep 17 00:00:00 2001
+From: Biduin Kadiev <kadyzay@gmail.com>
+Date: Mon, 23 Nov 2026 08:33:23 +0000
+Subject: [PATCH] Set Falznastil panel pitch to 330 mm
+
+---
+ README.md                   |  2 +-
+ prototype/index.html        | 18 +++++++++++-------
+ tests/roof-model.test.cjs   |  3 ++-
+ tests/tile-profile.test.cjs |  8 ++++----
+ 4 files changed, 18 insertions(+), 13 deletions(-)
+
+diff --git a/README.md b/README.md
+index 76f8a47..cfffeb9 100644
+--- a/README.md
++++ b/README.md
+@@ -30,7 +30,7 @@ python -m http.server 8765 --bind 127.0.0.1
+ 
+ ## Фальцнастил
+ 
+-Отдельный профиль «Фальцнастил» воспроизводит широкие плоские панели, двойные продольные замки с глубоким центральным желобом до уровня листа и тонкие канавки по фото владельца. Замки имеют объёмную геометрию, в том числе на треугольных и вальмовых скатах. Приняты приблизительные размеры: шаг панелей 510 мм, высота замка 30 мм; чертёж с размерами не предоставлен. Профиль сохраняется в ссылке на конфигурацию.
++Отдельный профиль «Фальцнастил» воспроизводит широкие плоские панели, двойные продольные замки с глубоким центральным желобом до уровня листа и тонкие канавки по фото владельца. Замки имеют объёмную геометрию, в том числе на треугольных и вальмовых скатах. Шаг панелей — 330 мм. Высота замка по фото принята приблизительно, 30 мм. Профиль сохраняется в ссылке на конфигурацию.
+ 
+ ## Мансардные окна
+ 
+diff --git a/prototype/index.html b/prototype/index.html
+index 707c1e8..9c88e9b 100644
+--- a/prototype/index.html
++++ b/prototype/index.html
+@@ -276,7 +276,7 @@ const MATS = {
+   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
+   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
+   falz:   { name:'Фальц',     prof:2, per:0.515, height:0.030 },
+-  falznastil:{ name:'Фальцнастил', prof:5, per:0.510, height:0.030 },
++  falznastil:{ name:'Фальцнастил', prof:5, per:falznastilPitch(), height:0.030 },
+ };
+ const COATS = {
+   gloss:{ name:'Глянец',  r:0.27, m:0.16 },
+@@ -484,6 +484,7 @@ const U = { uProfile:{ value:0 }, uPer:{ value:MATS.tile.per }, uHeight:{ value:
+ const BAV = Object.fromEntries(Object.entries(bavariaSection()).map(([k,v])=>[k,v.toFixed(7)]));
+ // Generate the seam shader from the same cross-section used by the physical mesh.
+ const FALZNASTIL = falznastilSection();
++const FALZNASTIL_GROOVES = falznastilGrooves();
+ const FALZ = falzSection();
+ const FRAG_HEAD = NOISE + `
+ uniform int uProfile;
+@@ -550,7 +551,7 @@ float hFalz(vec2 p){
+ }
+ float hFalznastil(vec2 p){
+   float d=min(fract(p.x/uPer),1.0-fract(p.x/uPer))*uPer;
+-  float groove=min(abs(d-0.105),abs(d-0.205));
++  float groove=min(abs(d-${FALZNASTIL_GROOVES[0].toFixed(3)}),abs(d-${FALZNASTIL_GROOVES[1].toFixed(3)}));
+   float height=0.001-0.0008*(1.0-smoothstep(0.0005,0.002,groove));
+   ${FALZNASTIL.map(([x,h],i,a)=>i===0 ? '' : `if(d>=${a[i-1][0].toFixed(5)} && d<=${x.toFixed(5)}) height=mix(${a[i-1][1].toFixed(5)},${h.toFixed(5)},clamp((d-${a[i-1][0].toFixed(5)})/${(x-a[i-1][0]).toFixed(5)},0.0,1.0));`).join('\n')}
+   return height;
+@@ -731,7 +732,7 @@ roofMat.onBeforeCompile = (sh) => {
+       #include <opaque_fragment>
+     `);
+ };
+-roofMat.customProgramCacheKey = () => 'roof-profile-v29-standing-seam-pans';
++roofMat.customProgramCacheKey = () => 'roof-profile-v30-standing-seam-pans';
+ // A continuous backing closes the silhouette and casts the roof's shadow.
+ const roofBackingMat = new THREE.MeshStandardMaterial({
+   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
+@@ -877,20 +878,23 @@ function falzSamples(pan){
+   return falzSection().map(p=>p[0]).concat(pan==='ribs' ? [c-.004,c-.002,c,c+.002,c+.004]
+     : pan==='narrow' ? [c-.020,c-.018,c,c+.018,c+.020] : pan==='wide' ? [.1955,.1975] : [],[.2575]);
+ }
+-// Approximate proportions from the reference photo: 510 mm pan pitch and 30 mm lock.
++function falznastilPitch(){ return 0.330; }
++function falznastilGrooves(){ return [0.068,0.133]; }
++// The 330 mm panel has a 30 mm lock, based on the reference photo.
+ // Distances from the seam centre in metres; shared by mesh sampling and GLSL.
+ function falznastilSection(){
+   // Two raised ribs flank a narrow channel that reaches the pan level.
+   return [[0,.001],[.004,.001],[.007,.030],[.012,.030],[.017,.026],[.020,.025],[.027,.001],[.034,.001]];
+ }
+ function falznastilHeight(u,v){
+-  const pitch=.510,t=((u/pitch)%1+1)%1,d=Math.min(t,1-t)*pitch;
++  const pitch=falznastilPitch(),t=((u/pitch)%1+1)%1,d=Math.min(t,1-t)*pitch;
+   const section=falznastilSection();
+   for(let i=1;i<section.length;i++){
+     const [x,h]=section[i],[prevX,prevH]=section[i-1];
+     if(d<=x) return prevH+(h-prevH)*Math.max(0,Math.min(1,(d-prevX)/(x-prevX)));
+   }
+-  const groove=Math.min(Math.abs(d-.105),Math.abs(d-.205));
++  const [inner,outer]=falznastilGrooves();
++  const groove=Math.min(Math.abs(d-inner),Math.abs(d-outer));
+   const k=Math.max(0,Math.min(1,(groove-.0005)/.0015));
+   return .001-.0008*(1-k*k*(3-2*k));
+ }
+@@ -958,7 +962,7 @@ function roofReliefGeometry(s, material, quality='overview'){
+   const pitch = straight ? material.per : 0.35;
+   const fractions = straight
+     ? (material.prof===2 ? falzSamples(material.pan).flatMap(x=>[x/pitch,1-x/pitch]) : material.prof===5
+-      ? [...falznastilSection().map(p=>p[0]),.065,.085,.103,.105,.107,.135,.165,.185,.203,.205,.207,.230,pitch/2].flatMap(x=>[x/pitch,1-x/pitch])
++      ? [...falznastilSection().map(p=>p[0]),...falznastilGrooves().flatMap(x=>[x-.002,x-.0005,x+.0005,x+.002]),pitch/2].flatMap(x=>[x/pitch,1-x/pitch])
+       : pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
+     : material.prof===3 ? [0,.016,.5]
+     : material.prof===4 ? (detailed ? [0,.01,.02,.03,.045,.06,.09,.15,.27,.47,.72] : [0,.02,.06,.15,.45,.75])
+diff --git a/tests/roof-model.test.cjs b/tests/roof-model.test.cjs
+index 157c296..478e66b 100644
+--- a/tests/roof-model.test.cjs
++++ b/tests/roof-model.test.cjs
+@@ -61,7 +61,8 @@ test('changing material and RAL updates the scene caption immediately', () => {
+   });
+   const data = html.slice(html.indexOf('const S ='), html.indexOf('/* configuration helpers */'));
+   const look = html.slice(html.indexOf('function updateStats('), html.indexOf('/* ================= UI'));
+-  vm.runInContext(data + modelSource + look + ";S.mat='falz';S.ral='9003';applyLook();", context);
++  const profiles = html.slice(html.indexOf('/* tile profile */'), html.indexOf('/* end tile profile */'));
++  vm.runInContext(data + modelSource + profiles + look + ";S.mat='falz';S.ral='9003';applyLook();", context);
+   assert.match(elements.get('stats').innerHTML, /Фальц, RAL 9003/);
+ });
+ 
+diff --git a/tests/tile-profile.test.cjs b/tests/tile-profile.test.cjs
+index d1fe4b4..2437f49 100644
+--- a/tests/tile-profile.test.cjs
++++ b/tests/tile-profile.test.cjs
+@@ -19,17 +19,17 @@ test('Falznastil has a full-depth channel between paired seam ribs and flat pans
+  vm.runInContext(html.slice(a,html.indexOf('/* end tile profile */',a)),c);
+  assert.equal(typeof c.falznastilHeight,'function');
+  const h=c.falznastilHeight;
+- for(const u of [-.7,0,.005,.12,.3,.51])for(const v of [0,.15,.7]){
+-  assert.ok(Math.abs(h(u,v)-h(u+.51,v))<1e-10,'510 mm repeating panel');
++ for(const u of [-.7,0,.005,.068,.133,.3,.33])for(const v of [0,.15,.7]){
++  assert.ok(Math.abs(h(u,v)-h(u+.33,v))<1e-10,'330 mm repeating panel');
+   assert.equal(h(u,v),h(u,v+1),'no transverse tile courses');
+  }
+  assert.ok(h(.009,0)>.029,'high seam crest');
+  assert.ok(h(.015,0)>.026,'second fold in the lock');
+  assert.ok(h(0,0)<.002,'centre of the lock drops to the sheet level');
+- assert.ok(h(.105,0)<h(.08,0),'fine groove in the flat pan');
++ assert.ok(h(.068,0)<h(.08,0) && h(.133,0)<h(.12,0),'both fine grooves fit inside the flat pan');
+  for(const v of [0,.1,2]){
+   assert.ok(h(.009,v)-h(0,v)>.027,'deep channel reaches the eave');
+-  assert.ok(Math.abs(h(.08,v)-h(.255,v))<1e-10,'wide pan stays flat');
++  assert.ok(Math.abs(h(.08,v)-h(.165,v))<1e-10,'wide pan stays flat');
+   assert.ok(Math.abs(h(-.009,v)-h(.009,v))<1e-10,'two seam ribs flank the central channel');
+  }
+  assert.ok(Math.abs(h(.034-1e-6,0)-h(.034+1e-6,0))<1e-6,'seam foot joins the pan without a gap');
+-- 
+2.52.0
+
