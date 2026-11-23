@@ -132,6 +132,12 @@
   .tg i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 3px #17313740; }
   .tg input:checked + i { background: var(--accent); }
   .tg input:checked + i::after { transform: translateX(16px); }
+  .slope-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px 8px; margin-bottom: 8px; min-width: 0; }
+  .slope-controls legend { padding: 0 4px; font-size: 12px; font-weight: 650; color: var(--ink); }
+  .slope-controls label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .slope-controls select { color: var(--ink); background: #f7fcfa; border: 1px solid var(--line); border-radius: 5px; font: inherit; min-height: 30px; padding: 3px 5px; }
+  .slope-controls small { grid-column: 1/-1; color: var(--muted); }
+  .slope-controls small:empty { display: none; }
   .hint { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.45; }
   @media (hover:hover) {
     .types button:hover, .seg button:not(.on):hover { border-color: var(--accent); }
@@ -260,7 +266,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
 /* ================= данные ================= */
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
-            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', ventN:0, vents:{} };
+            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', ventN:0, vents:{}, slopeWindows:null, slopeVents:null };
 
 const TYPES = [
   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
@@ -329,10 +335,15 @@ function decodeConfiguration(encoded){
       if(['trims','snow','gutter','trees'].includes(key) && typeof value === 'boolean') state[key]=value;
     }
     if(state.ventN===undefined && typeof data.state.vent==='boolean') state.ventN=Number(data.state.vent);
+    for(const [key,max] of [['slopeWindows',3],['slopeVents',6]]){
+      const counts = data.state[key];
+      if(Array.isArray(counts) && counts.length>=1 && counts.length<=4 &&
+         counts.every(n=>Number.isInteger(n) && n>=0 && n<=max)) state[key]=counts;
+    }
     const vents = data.state.vents;
     if(vents && typeof vents==='object' && !Array.isArray(vents)){
       state.vents=Object.fromEntries(Object.entries(vents).filter(([key,placement])=>
-        /^[0-5]$/.test(key) && Array.isArray(placement) && placement.length===3 &&
+        /^(?:[0-5]|[0-3]:[0-5])$/.test(key) && Array.isArray(placement) && placement.length===3 &&
         Number.isInteger(placement[0]) && placement[0]>=0 && placement[0]<=3 &&
         placement.slice(1).every(n=>Number.isFinite(n) && Math.abs(n)<=50)));
     }
@@ -1548,16 +1559,21 @@ function ventOverlaps(s,point,except){
       Math.abs(vent.point[0]-point[0])<0.64 && Math.abs(vent.point[1]-point[1])<0.76);
 }
 
-function findRoofVent(slopes, saved){
+function findRoofVent(slopes, saved, selectedSlope){
   const facing = ({n}) => 0.78*n.x+0.95*n.z;
-  const order = saved ? [saved[0]] : slopes.map((_,i)=>i).sort((a,b)=>facing(slopes[b])-facing(slopes[a]));
+  const order = selectedSlope !== undefined ? [selectedSlope] : saved ? [saved[0]]
+    : slopes.map((_,i)=>i).sort((a,b)=>facing(slopes[b])-facing(slopes[a]));
+  if(saved && selectedSlope!==undefined && saved[0]!==selectedSlope) return null;
   for(const slopeIndex of order){
     const s = slopes[slopeIndex];
     if(!s) continue;
-    const lo = 1.2, hi = Math.max(...s.uv.map(([,v])=>v))-0.52;
+    const manualSlope = selectedSlope!==undefined;
+    const lo = manualSlope && !s.hasSnowGuard ? 0.45 : 1.2;
+    const top = Math.max(...s.uv.map(([,v])=>v));
+    const hi = top-(manualSlope ? 0.43 : 0.52);
     if(hi<lo) continue;
     const heights = saved ? [saved[2]] : [0.73,0.61,0.86,0.49,0.29].map(fraction=>
-      Math.max(lo,Math.min(hi,(hi+0.52)*fraction)));
+      Math.max(lo,Math.min(hi,top*fraction)));
     for(const v of heights){
       if(v<lo || v>hi) continue;
       const [min,max] = ventSpan(s,v);
@@ -1749,24 +1765,27 @@ function build(){
       const umin = Math.max(lowStart,lowEnd)+0.3;
       const umax = Math.min(highStart,highEnd)-0.3;
       if(umax - umin < 0.8) continue;
+      s.hasSnowGuard=true;
       addSnowGuard(s,v0,umin,umax);
       kit.snow += umax - umin;
     }
   }
 
   // мансардные окна: рама + стекло + оклад, в плоскости ската
-  if(S.skyN > 0){
+  {
     const maxA = Math.max(...infos.map(x => x.area));
     const hw = skylightHalfWidth, hl = skylightHalfLength;
     for(const [slopeIndex, s] of infos.entries()){
-      if(s.area < maxA*0.35) continue;
+      const requested = S.slopeWindows ? S.slopeWindows[slopeIndex] ?? 0 : S.skyN;
+      if(!requested || (!S.slopeWindows && s.area<maxA*0.35)) continue;
       const vMax = Math.max(...s.uv.map(x => x[1]));
-      const lo = 1.0 + hl, hi = vMax - 0.5 - hl;
+      const lo = !S.slopeWindows || s.hasSnowGuard ? 1+hl : hl+0.19;
+      const hi = vMax-hl-(S.slopeWindows ? 0.20 : 0.5);
       if(hi < lo) continue;
       const vc = lo + (hi - lo)*THREE.MathUtils.clamp((S.skyPos - 0.2)/0.6, 0, 1);
       const [umin, umax] = skylightSpan(s, vc);
       if(!(umax >= umin)) continue;
-      let n = S.skyN;
+      let n = requested;
       while(n > 1 && (umax - umin)/(n - 1) < 2*hw + 0.7) n--;
       const defaults = Array.from({length:n}, (_, i) => [
         n === 1 ? (umin + umax)/2 : umin + (umax - umin)*i/(n - 1), vc
@@ -1790,7 +1809,7 @@ function build(){
           orientedBox(2*hw-0.06, 0.02, 2*hl-0.1, s.U, s.n, height(0.15, -0.01), skyGlassMat),
           orientedBox(2*hw+0.06, 0.04, 0.07, s.U, s.n, height(0.16, hl+0.01), skyFrameMat)
         );
-        const skylight = {group, frame, s, lo, hi, point, key:`${slopeIndex}:${i}`};
+        const skylight = {group, frame, s, slopeIndex, lo, hi, point, key:`${slopeIndex}:${i}`};
         placeSkylight(skylight);
         house.add(group);
         skylightMeshes.push(skylight);
@@ -1798,20 +1817,21 @@ function build(){
     }
   }
 
-  const ventKeys = Array.from({length:S.ventN}, (_,i)=>i);
-  for(const key of ventKeys){
+  const ventRequests = S.slopeVents
+    ? infos.flatMap((_,slopeIndex)=>Array.from({length:S.slopeVents[slopeIndex] ?? 0},(_,i)=>
+      ({key:`${slopeIndex}:${i}`,slopeIndex})))
+    : Array.from({length:S.ventN},(_,key)=>({key}));
+  for(const {key,slopeIndex} of ventRequests){
     if(!S.vents[key]) continue;
-    const saved = findRoofVent(infos,S.vents[key]);
+    const saved = findRoofVent(infos,S.vents[key],slopeIndex);
     if(saved) addRoofVent({...saved,key});
   }
-  for(const key of ventKeys){
+  for(const {key,slopeIndex} of ventRequests){
     if(roofVents.some(vent=>vent.key===key)) continue;
-    const placement = findRoofVent(infos);
+    const placement = findRoofVent(infos,undefined,slopeIndex);
     if(placement) addRoofVent({...placement,key});
   }
-  const ventValue = document.getElementById('slider-ventN')?.labels[0].querySelector('b');
-  if(ventValue) ventValue.textContent = roofVents.length < S.ventN
-    ? `${roofVents.length} из ${S.ventN}` : S.ventN ? `${S.ventN} шт` : 'нет';
+  updateSlopeControls(infos,M.y0);
 
   for(const pts of M.walls){
     const w = new THREE.Mesh(flatGeometry(pts), wallMat);
@@ -1892,7 +1912,7 @@ function segment(el, items, key, onChange, html){
     b.innerHTML = html ? html(id, label) : label;
     if(S[key] === id) b.classList.add('on');
     b.setAttribute('aria-pressed', String(S[key] === id));
-    b.onclick = () => { if(key === 'type' && S.type !== id){ S.skylights = {}; S.vents = {}; } S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); onChange(); };
+    b.onclick = () => { if(key === 'type' && S.type !== id){ S.skylights = {}; S.vents = {}; S.slopeWindows = null; S.slopeVents = null; } S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); onChange(); };
     el.appendChild(b);
   }
 }
@@ -1936,14 +1956,60 @@ function addSlider(parent, s){
   const fmt = s.fmt || (v => (s.step < 1 ? (+v).toFixed(s.step < 0.1 ? 2 : 1) : v) + s.unit);
   row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
-  inp.oninput = () => { if(s.k!=='ventN') S.skylights = {}; if(s.k!=='ventN' && s.k!=='skyN') S.vents = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
+  inp.oninput = () => { S.skylights = {}; S.vents = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
   inp.onchange=()=>requestAnimationFrame(()=>refreshRoofDetail());
   parent.appendChild(row);
 }
 for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
-const skyEl = document.getElementById('skysl');
-addSlider(skyEl, { k:'skyN', label:'Мансардные окна на скат', min:0, max:3, step:1, fmt: v => +v === 0 ? 'нет' : `${v} шт` });
-addSlider(skyEl, { k:'ventN', label:'Вентиляционные выходы', min:0, max:6, step:1, fmt:v => +v === 0 ? 'нет' : `${v} шт` });
+const slopeControls = document.getElementById('skysl');
+
+function updateSlopeControls(slopes,eaveHeight){
+  if(slopeControls.children.length!==slopes.length){
+    slopeControls.replaceChildren();
+    slopes.forEach((_,index)=>{
+      const row = document.createElement('fieldset');
+      row.className = 'slope-controls';
+      row.innerHTML = `<legend></legend>
+        <label>Окна <select data-count="slopeWindows"></select></label>
+        <label>Выходы <select data-count="slopeVents"></select></label>
+        <small></small>`;
+      for(const [key,max,items] of [['slopeWindows',3,skylightMeshes],['slopeVents',6,roofVents]]){
+        const select = row.querySelector(`[data-count="${key}"]`);
+        for(let n=0;n<=max;n++) select.add(new Option(String(n),String(n)));
+        select.onchange=()=>{
+          if(!S[key]){
+            S[key]=Array.from(slopeControls.children,(_,i)=>items.filter(item=>item.slopeIndex===i).length);
+            if(key==='slopeVents'){
+              const indexes = Array(slopeControls.children.length).fill(0);
+              S.vents=Object.fromEntries(roofVents.map(({slopeIndex,point})=>
+                [`${slopeIndex}:${indexes[slopeIndex]++}`,[slopeIndex,...point]]));
+            }
+          }
+          S[key][index]=Number(select.value);
+          build();
+        };
+      }
+      slopeControls.appendChild(row);
+    });
+  }
+  slopes.forEach((s,index)=>{
+    const row = slopeControls.children[index];
+    const {x,z} = s.n;
+    const side = Math.abs(x)>Math.abs(z) ? (x>0 ? 'справа' : 'слева') : (z>0 ? 'спереди' : 'сзади');
+    const level = S.type==='gambrel' ? (s.pts.some(p=>Math.abs(p.y-eaveHeight)<1e-3) ? ', нижний' : ', верхний') : '';
+    row.querySelector('legend').textContent = `Скат ${index+1} · ${side}${level}`;
+    const windows = skylightMeshes.filter(item=>item.slopeIndex===index).length;
+    const vents = roofVents.filter(item=>item.slopeIndex===index).length;
+    const requestedWindows = S.slopeWindows?.[index] ?? windows;
+    const requestedVents = S.slopeVents?.[index] ?? vents;
+    row.querySelector('[data-count="slopeWindows"]').value=requestedWindows;
+    row.querySelector('[data-count="slopeVents"]').value=requestedVents;
+    const status = row.querySelector('small');
+    status.textContent = windows<requestedWindows || vents<requestedVents
+      ? `Поместилось: окон ${windows}, выходов ${vents}` : '';
+  });
+}
+
 segment(document.getElementById('ridge-style'), [['round','Полукруглый'],['rect','Прямоугольный']], 'ridgeStyle', build);
 segment(document.getElementById('gutcol'), GUTTER.map(g => [g[0], g[1]]), 'gutCol', applyLook);
 

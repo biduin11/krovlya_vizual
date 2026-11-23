@@ -67,3 +67,13 @@ test('vent count and coordinates are preserved and invalid placements are ignore
  assert.deepEqual(JSON.parse(JSON.stringify(decoded)),{ventN:3,vents:{0:[1,-2,2.5],2:[3,1,3]}});
  assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent:true,ventN:0},null)).state.ventN,0);
 });
+
+test('per-slope counts and vent positions survive shared links',()=>{
+ const api=load();
+ const state={slopeWindows:[0,2,0,1],slopeVents:[2,0,0,1],vents:{'0:1':[0,2,3],'3:0':[3,1,3],'4:0':[3,1,3]}};
+ const decoded=api.decodeConfiguration(api.encodeConfiguration(state,null)).state;
+ assert.deepEqual(JSON.parse(JSON.stringify(decoded)),{...state,vents:{'0:1':[0,2,3],'3:0':[3,1,3]}});
+ const invalid=api.decodeConfiguration(api.encodeConfiguration({slopeWindows:[4],slopeVents:[1,0.5]},null)).state;
+ assert.equal(invalid.slopeWindows,undefined);
+ assert.equal(invalid.slopeVents,undefined);
+});
