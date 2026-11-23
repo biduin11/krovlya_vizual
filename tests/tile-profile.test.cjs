@@ -19,17 +19,17 @@ test('Falznastil has a full-depth channel between paired seam ribs and flat pans
  vm.runInContext(html.slice(a,html.indexOf('/* end tile profile */',a)),c);
  assert.equal(typeof c.falznastilHeight,'function');
  const h=c.falznastilHeight;
- for(const u of [-.7,0,.005,.12,.3,.51])for(const v of [0,.15,.7]){
-  assert.ok(Math.abs(h(u,v)-h(u+.51,v))<1e-10,'510 mm repeating panel');
+ for(const u of [-.7,0,.005,.068,.133,.3,.33])for(const v of [0,.15,.7]){
+  assert.ok(Math.abs(h(u,v)-h(u+.33,v))<1e-10,'330 mm repeating panel');
   assert.equal(h(u,v),h(u,v+1),'no transverse tile courses');
  }
  assert.ok(h(.009,0)>.029,'high seam crest');
  assert.ok(h(.015,0)>.026,'second fold in the lock');
  assert.ok(h(0,0)<.002,'centre of the lock drops to the sheet level');
- assert.ok(h(.105,0)<h(.08,0),'fine groove in the flat pan');
+ assert.ok(h(.068,0)<h(.08,0) && h(.133,0)<h(.12,0),'both fine grooves fit inside the flat pan');
  for(const v of [0,.1,2]){
   assert.ok(h(.009,v)-h(0,v)>.027,'deep channel reaches the eave');
-  assert.ok(Math.abs(h(.08,v)-h(.255,v))<1e-10,'wide pan stays flat');
+  assert.ok(Math.abs(h(.08,v)-h(.165,v))<1e-10,'wide pan stays flat');
   assert.ok(Math.abs(h(-.009,v)-h(.009,v))<1e-10,'two seam ribs flank the central channel');
  }
  assert.ok(Math.abs(h(.034-1e-6,0)-h(.034+1e-6,0))<1e-6,'seam foot joins the pan without a gap');

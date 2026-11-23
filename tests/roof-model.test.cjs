@@ -61,7 +61,8 @@ test('changing material and RAL updates the scene caption immediately', () => {
   });
   const data = html.slice(html.indexOf('const S ='), html.indexOf('/* configuration helpers */'));
   const look = html.slice(html.indexOf('function updateStats('), html.indexOf('/* ================= UI'));
-  vm.runInContext(data + modelSource + look + ";S.mat='falz';S.ral='9003';applyLook();", context);
+  const profiles = html.slice(html.indexOf('/* tile profile */'), html.indexOf('/* end tile profile */'));
+  vm.runInContext(data + modelSource + profiles + look + ";S.mat='falz';S.ral='9003';applyLook();", context);
   assert.match(elements.get('stats').innerHTML, /Фальц, RAL 9003/);
 });
 
