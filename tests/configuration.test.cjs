@@ -53,10 +53,17 @@ test('ridge style is preserved in shared links and unknown styles are ignored',(
  assert.equal(api.decodeConfiguration(api.encodeConfiguration({ridgeStyle:'invalid'},null)).state.ridgeStyle,undefined);
 });
 
-test('roof vent keeps its boolean state in shared links',()=>{
+test('legacy roof vent links are migrated to a count',()=>{
  const api=load();
  for(const vent of [true,false]){
-  assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent},null)).state.vent,vent);
+  assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent},null)).state.ventN,Number(vent));
  }
- assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent:'true'},null)).state.vent,undefined);
+ assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent:'true'},null)).state.ventN,undefined);
+});
+
+test('vent count and coordinates are preserved and invalid placements are ignored',()=>{
+ const api=load(), state={ventN:3,vents:{0:[1,-2,2.5],2:[3,1,3],3:[4,0,3],6:[0,0,3],1:[0,0,'3']}};
+ const decoded=api.decodeConfiguration(api.encodeConfiguration(state,null)).state;
+ assert.deepEqual(JSON.parse(JSON.stringify(decoded)),{ventN:3,vents:{0:[1,-2,2.5],2:[3,1,3]}});
+ assert.equal(api.decodeConfiguration(api.encodeConfiguration({vent:true,ventN:0},null)).state.ventN,0);
 });

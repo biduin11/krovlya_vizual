@@ -223,7 +223,7 @@
         <div class="seg small" id="ridge-style"></div>
         <div id="toggles"></div>
         <div id="skysl" style="margin-top:12px"></div>
-        <p class="hint">Окна можно перетаскивать мышью или пальцем по скату.</p>
+        <p class="hint">Окна и вентиляционные выходы можно перетаскивать по скату.</p>
         <h3>Цвет водостока</h3>
         <div class="seg small" id="gutcol"></div>
       </section>
@@ -260,7 +260,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
 /* ================= данные ================= */
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
-            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', vent:false };
+            skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', ventN:0, vents:{} };
 
 const TYPES = [
   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
@@ -319,14 +319,22 @@ function decodeConfiguration(encoded){
     if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
     const state = {};
     const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024']};
-    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],skyPos:[.2,.8]};
+    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8]};
     for(const [key,value] of Object.entries(data.state)){
       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
       if(Object.hasOwn(ranges,key) && typeof value === 'number' && Number.isFinite(value)){
         const [lo,hi]=ranges[key];
-        if(value>=lo && value<=hi && (!['facade','plinth','frames','skyN'].includes(key) || Number.isInteger(value))) state[key]=value;
+        if(value>=lo && value<=hi && (!['facade','plinth','frames','skyN','ventN'].includes(key) || Number.isInteger(value))) state[key]=value;
       }
-      if(['trims','snow','gutter','trees','vent'].includes(key) && typeof value === 'boolean') state[key]=value;
+      if(['trims','snow','gutter','trees'].includes(key) && typeof value === 'boolean') state[key]=value;
+    }
+    if(state.ventN===undefined && typeof data.state.vent==='boolean') state.ventN=Number(data.state.vent);
+    const vents = data.state.vents;
+    if(vents && typeof vents==='object' && !Array.isArray(vents)){
+      state.vents=Object.fromEntries(Object.entries(vents).filter(([key,placement])=>
+        /^[0-5]$/.test(key) && Array.isArray(placement) && placement.length===3 &&
+        Number.isInteger(placement[0]) && placement[0]>=0 && placement[0]<=3 &&
+        placement.slice(1).every(n=>Number.isFinite(n) && Math.abs(n)<=50)));
     }
     const skylights = data.state.skylights;
     if(skylights && typeof skylights === 'object' && !Array.isArray(skylights)){
@@ -1019,6 +1027,66 @@ function orientedBox(lx, ly, lz, X, Yv, center, mat){
 }
 
 // Листовые профили: поперечное сечение в горизонтали и по высоте.
+function addSnowGuard(s,v,min,max){
+  const tubeHalfWidth = 0.025, tubeHalfHeight = 0.014;
+  const tubeHeights = [0.094,0.171];
+  const extrusion = (shape,depth) => new THREE.ExtrudeGeometry(shape,{
+    depth, bevelEnabled:false, curveSegments:16
+  });
+  const mount = (geometry,u) => {
+    const position = s.o.clone().addScaledVector(s.U,u).addScaledVector(s.V,v);
+    const mesh = new THREE.Mesh(geometry,trimMat);
+    mesh.position.copy(position);
+    mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(s.V,s.n,s.U));
+    mesh.castShadow = mesh.receiveShadow = true;
+    house.add(mesh);
+  };
+
+  const tube = new THREE.Shape();
+  tube.absellipse(0,0,tubeHalfWidth,tubeHalfHeight,0,Math.PI*2,false);
+  const lumen = new THREE.Path();
+  lumen.absellipse(0,0,tubeHalfWidth-0.003,tubeHalfHeight-0.003,0,Math.PI*2,true);
+  tube.holes.push(lumen);
+  for(const height of tubeHeights){
+    const geometry = extrusion(tube,max-min);
+    geometry.translate(0,height,0);
+    mount(geometry,min);
+  }
+
+  const bracket = new THREE.Shape();
+  bracket.moveTo(-0.22,0.014);
+  bracket.quadraticCurveTo(-0.224,0.065,-0.183,0.076);
+  bracket.lineTo(-0.071,0.102);
+  bracket.quadraticCurveTo(-0.043,0.108,-0.041,0.152);
+  bracket.quadraticCurveTo(-0.043,0.207,0,0.207);
+  bracket.quadraticCurveTo(0.043,0.207,0.041,0.152);
+  bracket.quadraticCurveTo(0.043,0.108,0.071,0.102);
+  bracket.lineTo(0.183,0.076);
+  bracket.quadraticCurveTo(0.224,0.065,0.22,0.014);
+  bracket.closePath();
+  for(const [x,y,rx,ry] of [
+    ...tubeHeights.map(height=>[0,height,tubeHalfWidth+0.0015,tubeHalfHeight+0.0015]),
+    [-0.14,0.045,0.006,0.012],[-0.075,0.049,0.006,0.012],
+    [0.075,0.049,0.006,0.012],[0.14,0.045,0.006,0.012]
+  ]){
+    const hole = new THREE.Path();
+    hole.absellipse(x,y,rx,ry,0,Math.PI*2,false);
+    bracket.holes.push(hole);
+  }
+  const count = Math.ceil((max-min-0.24)/0.9)+1;
+  const supports = new THREE.InstancedMesh(extrusion(bracket,0.008),trimMat,count);
+  const transform = new THREE.Matrix4().makeBasis(s.V,s.n,s.U);
+  supports.castShadow = supports.receiveShadow = true;
+  for(let i=0;i<count;i++){
+    const u = min+0.12+(max-min-0.24)*i/(count-1);
+    const center = s.o.clone().addScaledVector(s.U,u).addScaledVector(s.V,v);
+    supports.setMatrixAt(i,transform.setPosition(center.clone().addScaledVector(s.U,-0.004)));
+    const foot = center.addScaledVector(s.n,0.012);
+    house.add(orientedBox(0.046,0.016,0.46,s.U,s.n,foot,trimMat));
+  }
+  house.add(supports);
+}
+
 function sheetProfile(profile, a, b, across, material, {endShift = [0, 0], up = Y} = {}){
   const shape = new THREE.Shape(profile.map(([x,y]) => new THREE.Vector2(x,y)));
   const length = a.distanceTo(b);
@@ -1338,7 +1406,7 @@ const house = new THREE.Group();
 const envGroup = new THREE.Group();
 const roofSurfaceMeshes = [];
 const skylightMeshes = [];
-let roofVent = null;
+const roofVents = [];
 let tileQuality='overview';
 let needsRender=true;
 // Черепичные профили (Монтеррей, Каскад) имеют два уровня сетки; профнастил и фальц от него не зависят.
@@ -1464,40 +1532,59 @@ function overlapsVent([u,v], [ventU,ventV]){
          Math.abs(v-ventV)<skylightHalfLength+0.50;
 }
 
-function findRoofVent(slopes){
-  // Prefer the slopes facing the initial view, with enough room above the snow guards.
+function ventSpan(s,v){
+  const [lowStart,highStart] = spanAt(s,v-0.37);
+  const [lowEnd,highEnd] = spanAt(s,v+0.37);
+  return [Math.max(lowStart,lowEnd)+0.40, Math.min(highStart,highEnd)-0.40];
+}
+
+function ventOverlaps(s,point,except){
+  return skylightMeshes.some(w=>w.s===s && overlapsVent(w.point,point)) ||
+    roofVents.some(vent=>vent!==except && vent.s===s &&
+      Math.abs(vent.point[0]-point[0])<0.64 && Math.abs(vent.point[1]-point[1])<0.76);
+}
+
+function findRoofVent(slopes, saved){
   const facing = ({n}) => 0.78*n.x+0.95*n.z;
-  for(const s of slopes.slice().sort((a,b)=>facing(b)-facing(a))){
-    const top = Math.max(...s.uv.map(([,v])=>v));
-    const minV = 1.2, maxV = top-0.52;
-    if(maxV<minV) continue;
-    for(const fraction of [0.73,0.61,0.86,0.49]){
-      const v = Math.max(minV,Math.min(maxV,top*fraction));
-      const [lowStart,highStart] = spanAt(s,v-0.37);
-      const [lowEnd,highEnd] = spanAt(s,v+0.37);
-      const min = Math.max(lowStart,lowEnd)+0.40;
-      const max = Math.min(highStart,highEnd)-0.40;
+  const order = saved ? [saved[0]] : slopes.map((_,i)=>i).sort((a,b)=>facing(slopes[b])-facing(slopes[a]));
+  for(const slopeIndex of order){
+    const s = slopes[slopeIndex];
+    if(!s) continue;
+    const lo = 1.2, hi = Math.max(...s.uv.map(([,v])=>v))-0.52;
+    if(hi<lo) continue;
+    const heights = saved ? [saved[2]] : [0.73,0.61,0.86,0.49,0.29].map(fraction=>
+      Math.max(lo,Math.min(hi,(hi+0.52)*fraction)));
+    for(const v of heights){
+      if(v<lo || v>hi) continue;
+      const [min,max] = ventSpan(s,v);
       if(!(min<=max)) continue;
-      for(const offset of [0.68,0.32,0.92,0.08,0.50]){
-        const point = [min+(max-min)*offset,v];
-        if(!skylightMeshes.some(w=>w.s===s && overlapsVent(w.point,point))) return {s,point};
+      const positions = saved ? [saved[1]] : [0.68,0.32,0.92,0.08,0.50,0.22,0.78].map(offset=>min+(max-min)*offset);
+      for(const u of positions){
+        const point = [u,v];
+        if(u>=min && u<=max && !ventOverlaps(s,point)) return {s,slopeIndex,lo,hi,point};
       }
     }
   }
   return null;
 }
 
-function addRoofVent({s,point:[u,v]}){
-  const base = s.o.clone().addScaledVector(s.U,u).addScaledVector(s.V,v);
+function placeVent({s,group,point:[u,v]}){
+  group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v);
+  needsRender=true;
+}
+
+function addRoofVent(vent){
+  const {s} = vent;
+  const group = new THREE.Group();
   const flashingHeight = MATS.bavaria.height+0.005;
-  const flashingCenter = base.clone().addScaledVector(s.n,flashingHeight/2);
-  house.add(orientedBox(0.54,flashingHeight,0.66,s.U,s.n,flashingCenter,trimMat));
+  const flashingCenter = s.n.clone().multiplyScalar(flashingHeight/2);
+  group.add(orientedBox(0.54,flashingHeight,0.66,s.U,s.n,flashingCenter,trimMat));
   const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.182,0.215,0.048,32),trimMat);
-  collar.position.copy(base).addScaledVector(s.n,flashingHeight+0.009);
+  collar.position.copy(s.n).multiplyScalar(flashingHeight+0.009);
   collar.quaternion.setFromUnitVectors(Y,s.n);
   collar.scale.z = 1.14;
   collar.castShadow = collar.receiveShadow = true;
-  house.add(collar);
+  group.add(collar);
 
   // Vertical duct with a rounded base, tapered stem, louvres and a rain cap.
   const section = [
@@ -1513,15 +1600,18 @@ function addRoofVent({s,point:[u,v]}){
   }
   section.push([0.105,0.750],[0.150,0.751],[0.150,0.765],[0.146,0.781],[0.131,0.793],[0.011,0.834],[0,0.836]);
   const body = new THREE.Mesh(new THREE.LatheGeometry(section.map(([r,h])=>new THREE.Vector2(r,h)),40),trimMat);
-  body.position.copy(base);
   body.castShadow = body.receiveShadow = true;
-  house.add(body);
+  group.add(body);
+  vent.group=group;
+  roofVents.push(vent);
+  placeVent(vent);
+  house.add(group);
 }
 
 function build(){
-  endSkylightDrag();
+  endRoofItemDrag();
   skylightMeshes.length = 0;
-  roofVent = null;
+  roofVents.length = 0;
   const M = roofModel();
   const corrected=S.O!==M.effectiveOverhang;
   S.O=M.effectiveOverhang;
@@ -1650,18 +1740,12 @@ function build(){
       const vMax = Math.max(...s.uv.map(x => x[1]));
       if(vMax < 1.8) continue;
       const v0 = Math.min(0.8, vMax*0.3);
-      let [umin, umax] = spanAt(s, v0);
-      umin += 0.3; umax -= 0.3;
+      const [lowStart,highStart] = spanAt(s,v0-0.24);
+      const [lowEnd,highEnd] = spanAt(s,v0+0.24);
+      const umin = Math.max(lowStart,lowEnd)+0.3;
+      const umax = Math.min(highStart,highEnd)-0.3;
       if(umax - umin < 0.8) continue;
-      const P = (u,v) => s.o.clone().addScaledVector(s.U, u).addScaledVector(s.V, v);
-      const t1 = rod(P(umin,v0).addScaledVector(s.n, 0.07), P(umax,v0).addScaledVector(s.n, 0.07), 0.014, trimMat, 8);
-      const t2 = rod(P(umin,v0+0.04).addScaledVector(s.n, 0.14), P(umax,v0+0.04).addScaledVector(s.n, 0.14), 0.014, trimMat, 8);
-      if(t1) house.add(t1); if(t2) house.add(t2);
-      const nb = Math.ceil((umax-umin)/0.9) + 1;
-      for(let i=0;i<nb;i++){
-        const u = umin + (umax-umin)*i/(nb-1);
-        house.add(orientedBox(0.13, 0.17, 0.012, s.V, s.n, P(u, v0+0.02).addScaledVector(s.n, 0.085), trimMat));
-      }
+      addSnowGuard(s,v0,umin,umax);
       kit.snow += umax - umin;
     }
   }
@@ -1710,10 +1794,20 @@ function build(){
     }
   }
 
-  if(S.vent){
-    roofVent = findRoofVent(infos);
-    if(roofVent) addRoofVent(roofVent);
+  const ventKeys = Array.from({length:S.ventN}, (_,i)=>i);
+  for(const key of ventKeys){
+    if(!S.vents[key]) continue;
+    const saved = findRoofVent(infos,S.vents[key]);
+    if(saved) addRoofVent({...saved,key});
   }
+  for(const key of ventKeys){
+    if(roofVents.some(vent=>vent.key===key)) continue;
+    const placement = findRoofVent(infos);
+    if(placement) addRoofVent({...placement,key});
+  }
+  const ventValue = document.getElementById('slider-ventN')?.labels[0].querySelector('b');
+  if(ventValue) ventValue.textContent = roofVents.length < S.ventN
+    ? `${roofVents.length} из ${S.ventN}` : S.ventN ? `${S.ventN} шт` : 'нет';
 
   for(const pts of M.walls){
     const w = new THREE.Mesh(flatGeometry(pts), wallMat);
@@ -1751,7 +1845,7 @@ function applyLook(){
   needsRender=true;
   for(const {mesh,s} of roofSurfaceMeshes){
     if(mesh.userData.roofProfile!==S.mat || (S.mat==='falz' && mesh.userData.roofPan!==S.falzPan)){
-      endSkylightDrag();
+      endRoofItemDrag();
       mesh.geometry.dispose();
       mesh.geometry=roofReliefGeometry(s,{...MATS[S.mat],pan:S.falzPan},tileQuality);
       s.g=mesh.geometry;
@@ -1794,7 +1888,7 @@ function segment(el, items, key, onChange, html){
     b.innerHTML = html ? html(id, label) : label;
     if(S[key] === id) b.classList.add('on');
     b.setAttribute('aria-pressed', String(S[key] === id));
-    b.onclick = () => { if(key === 'type' && S.type !== id) S.skylights = {}; S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); onChange(); };
+    b.onclick = () => { if(key === 'type' && S.type !== id){ S.skylights = {}; S.vents = {}; } S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); onChange(); };
     el.appendChild(b);
   }
 }
@@ -1830,7 +1924,7 @@ function toggles(el, list){
     el.appendChild(l);
   }
 }
-toggles(document.getElementById('toggles'), [['trims','Торцевые и карнизные планки'],['snow','Снегозадержатели'],['gutter','Водосточная система'],['vent','Вентиляционный выход']]);
+toggles(document.getElementById('toggles'), [['trims','Торцевые и карнизные планки'],['snow','Снегозадержатели'],['gutter','Водосточная система']]);
 toggles(document.getElementById('envtoggles'), [['trees','Деревья']]);
 
 function addSlider(parent, s){
@@ -1838,13 +1932,14 @@ function addSlider(parent, s){
   const fmt = s.fmt || (v => (s.step < 1 ? (+v).toFixed(s.step < 0.1 ? 2 : 1) : v) + s.unit);
   row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
-  inp.oninput = () => { S.skylights = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
+  inp.oninput = () => { if(s.k!=='ventN') S.skylights = {}; if(s.k!=='ventN' && s.k!=='skyN') S.vents = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
   inp.onchange=()=>requestAnimationFrame(()=>refreshRoofDetail());
   parent.appendChild(row);
 }
 for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
 const skyEl = document.getElementById('skysl');
 addSlider(skyEl, { k:'skyN', label:'Мансардные окна на скат', min:0, max:3, step:1, fmt: v => +v === 0 ? 'нет' : `${v} шт` });
+addSlider(skyEl, { k:'ventN', label:'Вентиляционные выходы', min:0, max:6, step:1, fmt:v => +v === 0 ? 'нет' : `${v} шт` });
 segment(document.getElementById('ridge-style'), [['round','Полукруглый'],['rect','Прямоугольный']], 'ridgeStyle', build);
 segment(document.getElementById('gutcol'), GUTTER.map(g => [g[0], g[1]]), 'gutCol', applyLook);
 
@@ -1862,29 +1957,30 @@ controls.addEventListener('start', () => markView());
 const rotBtn = document.getElementById('rot');
 rotBtn.setAttribute('aria-pressed', 'false');
 rotBtn.onclick = () => { controls.autoRotate = !controls.autoRotate; if(controls.autoRotate) markView(); rotBtn.classList.toggle('on', controls.autoRotate); rotBtn.setAttribute('aria-pressed', String(controls.autoRotate)); };
-const skylightRay = new THREE.Raycaster();
-let skylightDrag = null;
+const roofItemRay = new THREE.Raycaster();
+let roofItemDrag = null;
 
-function aimSkylightRay(event){
+function aimRoofItemRay(event){
   const rect = canvas.getBoundingClientRect();
-  skylightRay.setFromCamera(new THREE.Vector2(
+  roofItemRay.setFromCamera(new THREE.Vector2(
     (event.clientX - rect.left)/rect.width*2 - 1,
     1 - (event.clientY - rect.top)/rect.height*2
   ), camera);
 }
 
 canvas.addEventListener('pointerdown', event => {
-  if(skylightDrag || pendingBuild || !event.isPrimary || event.button !== 0) return;
-  aimSkylightRay(event);
+  if(roofItemDrag || pendingBuild || !event.isPrimary || event.button !== 0) return;
+  aimRoofItemRay(event);
   house.updateMatrixWorld(true);
-  const [hit] = skylightRay.intersectObjects(skylightMeshes.map(skylight => skylight.group));
+  const items = [...skylightMeshes,...roofVents];
+  const [hit] = roofItemRay.intersectObjects(items.map(item=>item.group));
   if(!hit) return;
-  const [roofHit] = skylightRay.intersectObjects(roofSurfaceMeshes.map(({mesh}) => mesh));
+  const [roofHit] = roofItemRay.intersectObjects(roofSurfaceMeshes.map(({mesh}) => mesh));
   if(roofHit && roofHit.distance < hit.distance) return;
-  const skylight = skylightMeshes.find(skylight => skylight.group === hit.object.parent);
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(skylight.s.n, hit.point);
-  const offset = hit.point.clone().sub(skylight.group.position);
-  skylightDrag = {skylight, plane, offset, pointerId:event.pointerId};
+  const item = items.find(item=>item.group===hit.object.parent);
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(item.s.n, hit.point);
+  const offset = hit.point.clone().sub(item.group.position);
+  roofItemDrag = {item, plane, offset, pointerId:event.pointerId};
   event.preventDefault();
   event.stopImmediatePropagation();
   canvas.setPointerCapture(event.pointerId);
@@ -1896,37 +1992,45 @@ canvas.addEventListener('pointerdown', event => {
 }, {capture:true});
 
 canvas.addEventListener('pointermove', event => {
-  if(skylightDrag?.pointerId !== event.pointerId) return;
-  const {skylight, plane, offset} = skylightDrag;
-  const {s, lo, hi} = skylight;
-  aimSkylightRay(event);
-  const hit = skylightRay.ray.intersectPlane(plane, new THREE.Vector3());
+  if(roofItemDrag?.pointerId !== event.pointerId) return;
+  const {item, plane, offset} = roofItemDrag;
+  const {s, lo, hi} = item;
+  const span = item.frame ? skylightSpan : ventSpan;
+  aimRoofItemRay(event);
+  const hit = roofItemRay.ray.intersectPlane(plane, new THREE.Vector3());
   if(!hit) return;
   const delta = hit.sub(offset).sub(s.o);
   let v = THREE.MathUtils.clamp(delta.dot(s.V), lo, hi);
-  let [min, max] = skylightSpan(s, v);
-  if(!(min <= max)){
-    v = skylight.point[1];
-    [min, max] = skylightSpan(s, v);
+  let [min, max] = span(s,v);
+  if(!(min<=max)){
+    v = item.point[1];
+    [min,max] = span(s,v);
   }
   const u = THREE.MathUtils.clamp(delta.dot(s.U), min, max);
   const point = [u, v];
-  if(roofVent?.s===s && overlapsVent(point,roofVent.point)) return;
-  if(skylightMeshes.some(other => other !== skylight && other.s === s && skylightsOverlap(point, other.point))) return;
-  skylight.point = S.skylights[skylight.key] = point;
-  placeSkylight(skylight);
+  if(item.frame){
+    if(roofVents.some(vent=>vent.s===s && overlapsVent(point,vent.point))) return;
+    if(skylightMeshes.some(other=>other!==item && other.s===s && skylightsOverlap(point,other.point))) return;
+    item.point = S.skylights[item.key] = point;
+    placeSkylight(item);
+  } else {
+    if(ventOverlaps(s,point,item)) return;
+    item.point = point;
+    S.vents[item.key] = [item.slopeIndex,...point];
+    placeVent(item);
+  }
 });
 
-function endSkylightDrag(event){
-  if(!skylightDrag || (event && event.pointerId !== skylightDrag.pointerId)) return;
-  const {pointerId} = skylightDrag;
-  skylightDrag = null;
+function endRoofItemDrag(event){
+  if(!roofItemDrag || (event && event.pointerId !== roofItemDrag.pointerId)) return;
+  const {pointerId} = roofItemDrag;
+  roofItemDrag = null;
   if(canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
   controls.enabled = true;
   canvas.style.cursor = '';
 }
 for(const event of ['pointerup', 'pointercancel', 'lostpointercapture']){
-  canvas.addEventListener(event, endSkylightDrag);
+  canvas.addEventListener(event, endRoofItemDrag);
 }
 
 function setView(name='overview'){
@@ -2067,7 +2171,7 @@ if(location.hash.startsWith('#roof=') && !savedConfiguration) actionStatus.textC
 document.getElementById('loading').remove();
 
 renderer.setAnimationLoop(() => {
-  const moved=!skylightDrag && controls.update();
+  const moved=!roofItemDrag && controls.update();
   if(moved || needsRender || controls.autoRotate){
     sky.position.copy(camera.position);
     renderer.render(scene, camera);

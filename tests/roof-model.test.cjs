@@ -13,7 +13,7 @@ class Vector3 {
 
 test('roof vent fits a small mansard when preferred heights miss the usable interval', () => {
   const context = vm.createContext({
-    THREE:{Vector3}, S:{type:'gambrel',W:5,L:5,H:3.2,A:10,O:.2}, skylightMeshes:[]
+    THREE:{Vector3}, S:{type:'gambrel',W:5,L:5,H:3.2,A:10,O:.2}, skylightMeshes:[], roofVents:[]
   });
   const spanSource = html.slice(html.indexOf('function spanAt('),html.indexOf('function placeSkylight('));
   const ventSource = html.slice(html.indexOf('function overlapsVent('),html.indexOf('function addRoofVent('));
@@ -90,7 +90,7 @@ test('idle scene renders once and redraws after changes or camera movement',()=>
   const context=vm.createContext({
     renderer:{setAnimationLoop(cb){frame=cb},render(){renders++}},
     controls:{autoRotate:false,update:()=>moved},
-    sky:{position:{copy(){}}},camera:{position:{}},scene:{},needsRender:true,skylightDrag:null
+    sky:{position:{copy(){}}},camera:{position:{}},scene:{},needsRender:true,roofItemDrag:null
   });
   const start=html.lastIndexOf('renderer.setAnimationLoop(');
   vm.runInContext(html.slice(start,html.indexOf('} catch(error)',start)),context);
