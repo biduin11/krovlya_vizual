@@ -77,3 +77,16 @@ test('per-slope counts and vent positions survive shared links',()=>{
  assert.equal(invalid.slopeWindows,undefined);
  assert.equal(invalid.slopeVents,undefined);
 });
+
+test('fence and both bay settings survive shared links',()=>{
+ const api=load();
+ for(const fence of ['none','corrugated','picket','siding','louver']) for(const fencePost of ['metal','stone']){
+  const state={fence,fencePost,bayFaces:['front','left'],slopeDormers:[0,3]};
+  const decoded=api.decodeConfiguration(api.encodeConfiguration(state,null)).state;
+  assert.deepEqual(JSON.parse(JSON.stringify(decoded)),state);
+ }
+ const invalid=api.decodeConfiguration(api.encodeConfiguration({
+  fence:'invalid',fencePost:3,bayFaces:['front','front','garage'],slopeDormers:[1,4,'2']
+ },null)).state;
+ assert.deepEqual(JSON.parse(JSON.stringify(invalid)),{bayFaces:['front'],slopeDormers:[1]});
+});

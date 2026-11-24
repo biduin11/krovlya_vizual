@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(require('node:path').join(__dirname, '../prototype/index.html'), 'utf8');
 const modelSource = html.slice(html.indexOf('function roofModel(){'), html.indexOf('/* ================= сборка'));
 const liftSource = html.slice(html.indexOf('  const lift = new THREE.Vector3'), html.indexOf('  kit = { area:'));
+const spanSource = html.slice(html.indexOf('function spanAt('),html.indexOf('function placeSkylight('));
 // Only roofModel's vector operations are needed; no renderer or network dependency.
 class Vector3 {
   constructor(x=0,y=0,z=0){ Object.assign(this,{x,y,z}); }
@@ -15,7 +16,6 @@ test('roof vent fits a small mansard when preferred heights miss the usable inte
   const context = vm.createContext({
     THREE:{Vector3}, S:{type:'gambrel',W:5,L:5,H:3.2,A:10,O:.2}, skylightMeshes:[], roofVents:[]
   });
-  const spanSource = html.slice(html.indexOf('function spanAt('),html.indexOf('function placeSkylight('));
   const ventSource = html.slice(html.indexOf('function overlapsVent('),html.indexOf('function addRoofVent('));
   vm.runInContext(modelSource+spanSource+ventSource+';globalThis.M=roofModel();',context);
   const slopes = context.M.slopes.map(pts => {
@@ -29,6 +29,19 @@ test('roof vent fits a small mansard when preferred heights miss the usable inte
   assert.ok(vent.point.every(Number.isFinite));
   const top=Math.max(...vent.s.uv.map(([,v])=>v));
   assert.ok(vent.point[1]>=1.2 && vent.point[1]<=top-.52);
+});
+
+test('roof dormer fits a wide slope and reserves room for nearby roof fixtures', () => {
+  const context = vm.createContext({});
+  vm.runInContext(spanSource, context);
+  const s = {V:{x:0,y:0.5,z:Math.sqrt(0.75)}, uv:[[-4,0],[4,0],[1,5],[-1,5]], hasSnowGuard:true};
+  s.dormer = context.dormerLayout(s);
+  assert.ok(s.dormer);
+  const {u,low,front,sideBack,ridgeBack} = s.dormer;
+  assert.ok(front>1 && low<sideBack && sideBack<ridgeBack && ridgeBack<5);
+  assert.equal(context.overlapsDormer(s,[u,low],0.4,0.6),true);
+  assert.equal(context.overlapsDormer(s,[u+2.2,low],0.4,0.6),false);
+  assert.equal(context.dormerLayout({...s,V:{x:0,y:0.17,z:0.98}}),null);
 });
 for (const type of ['shed','gable','hip','pyramid','gambrel']) {
   test(`${type}: roof lift preserves shape and eave detection across parameter limits`, () => {
