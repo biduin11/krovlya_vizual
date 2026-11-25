@@ -112,6 +112,7 @@
   #mats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); }
   .seg.small { margin-top: 7px; }
   .seg.small button { padding: 7px 6px; }
+  #fence-dimensions { margin-top: 12px; }
   #export { background: var(--warm); border-color: var(--warm); color: #fff; }
   #share { background: var(--warm-light); border-color: #f2cbb7; color: #8f3218; }
   #action-status { font-size: 12px; line-height: 1.5; color: var(--muted); }
@@ -256,7 +257,8 @@
       <section>
         <h2>Забор</h2>
         <div class="seg small" id="fence-styles" role="group" aria-label="Заполнение забора"></div>
-        <div id="fence-post-options" hidden>
+        <div id="fence-options" hidden>
+          <div id="fence-dimensions"></div>
           <h3>Столбы</h3>
           <div class="seg small" id="fence-posts" role="group" aria-label="Материал столбов"></div>
           <h3>Цвет забора <span id="fence-ral-name"></span></h3>
@@ -282,7 +284,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
 const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
             skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', ventN:0, vents:{}, slopeWindows:null, slopeVents:null,
-            fence:'none', fencePost:'metal', fenceRal:'8017', bayFaces:[], slopeDormers:[] };
+            fence:'none', fencePost:'metal', fenceRal:'8017', fenceHeight:1.9, bayFaces:[], slopeDormers:[] };
 
 const TYPES = [
   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
@@ -333,6 +335,8 @@ const SLIDERS = [
 ];
 
 /* configuration helpers */
+const FENCE_HEIGHT_RANGE = {min:1,max:3,step:0.05};
+
 function encodeConfiguration(state, camera){
   return encodeURIComponent(JSON.stringify({v:1,state,camera}));
 }
@@ -345,7 +349,8 @@ function decodeConfiguration(encoded){
     const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024'],
       fence:['none','corrugated','picket','siding','louver'],fencePost:['metal','stone']};
     enums.fenceRal = enums.ral;
-    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8]};
+    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8],
+      fenceHeight:[FENCE_HEIGHT_RANGE.min,FENCE_HEIGHT_RANGE.max]};
     for(const [key,value] of Object.entries(data.state)){
       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
       if(Object.hasOwn(ranges,key) && typeof value === 'number' && Number.isFinite(value)){
@@ -353,6 +358,10 @@ function decodeConfiguration(encoded){
         if(value>=lo && value<=hi && (!['facade','plinth','frames','skyN','ventN'].includes(key) || Number.isInteger(value))) state[key]=value;
       }
       if(['trims','snow','gutter','trees'].includes(key) && typeof value === 'boolean') state[key]=value;
+    }
+    if(state.fenceHeight!==undefined){
+      const {step} = FENCE_HEIGHT_RANGE;
+      state.fenceHeight = Number((Math.round(state.fenceHeight/step)*step).toFixed(2));
     }
     if(state.ventN===undefined && typeof data.state.vent==='boolean') state.ventN=Number(data.state.vent);
     for(const [key,max] of [['slopeWindows',3],['slopeVents',6]]){
@@ -1518,7 +1527,6 @@ function addOpening(c, nrm, tan, off, y, w, h, kind){
 }
 
 const fenceSetback = 3;
-const fenceHeight = 1.85;
 let fenceKey = '';
 const picketWidth = 0.13;
 function picketCenters(width){
@@ -1530,19 +1538,31 @@ function picketCenters(width){
   return Array.from({length:count},(_,i)=>(i-(count-1)/2)*(picketWidth+gap));
 }
 
-function buildFence(doorX){
-  const key = [S.fence, S.fencePost, S.W, S.L, doorX].join(':');
+function faceOpeningCount(length){
+  return Math.max(1,Math.floor(length/3.1));
+}
+
+function frontDoorX(){
+  const count = faceOpeningCount(S.W);
+  return -S.W/2 + (S.W/count)*(Math.floor(count/2)+0.5);
+}
+
+function buildFence(){
+  const key = [S.fence, S.fencePost, S.fenceHeight, S.W, S.L].join(':');
   if(key === fenceKey) return;
   fenceKey = key;
+  needsRender = true;
   clearGroup(fenceGroup);
   if(S.fence === 'none') return;
 
   const hx = S.W/2 + fenceSetback, hz = S.L/2 + fenceSetback;
   const stone = S.fencePost === 'stone';
   const postWidth = stone ? 0.42 : 0.10;
+  const capHeight = 0.05;
+  const postHeight = S.fenceHeight-capHeight;
+  const bottom = 0.12, top = postHeight-0.11, panelHeight = top-bottom;
   const boxes = new Map();
   const pickets = [];
-  const picketHeight = 1.74-0.12;
   const transform = new THREE.Matrix4();
   const zAxis = new THREE.Vector3();
   function box(mat, center, width, height, depth, tan, tilt = 0){
@@ -1554,20 +1574,19 @@ function buildFence(doorX){
   }
 
   function addPost(at, tan){
-    const base = at.clone(); base.y = fenceHeight/2;
+    const base = at.clone(); base.y = postHeight/2;
     if(stone){
-      const post = orientedBox(postWidth,fenceHeight,postWidth,tan,Y,base,fenceStoneMat);
+      const post = orientedBox(postWidth,postHeight,postWidth,tan,Y,base,fenceStoneMat);
       post.receiveShadow = true;
       fenceGroup.add(post);
-    } else box(fenceMetalMat,base,postWidth,fenceHeight,postWidth,tan);
-    base.y = fenceHeight + 0.03;
+    } else box(fenceMetalMat,base,postWidth,postHeight,postWidth,tan);
+    base.y = postHeight + capHeight/2;
     const cap = postWidth + (stone ? 0.085 : 0.026);
-    box(fenceMetalMat,base,cap,0.06,cap,tan);
+    box(fenceMetalMat,base,cap,capHeight,cap,tan);
   }
 
   function addPanel(center, tan, width, gate){
     const out = new THREE.Vector3().crossVectors(tan,Y);
-    const bottom = 0.12, top = 1.74, height = top-bottom;
     const at = (x,y,z=0) => center.clone().addScaledVector(tan,x).addScaledVector(Y,y).addScaledVector(out,z);
     for(const y of [bottom+0.18,top-0.18]){
       box(fenceMetalMat,at(0,y,-0.047),width,0.055,0.072,tan);
@@ -1590,14 +1609,14 @@ function buildFence(doorX){
         const placement = new THREE.Matrix4().makeBasis(tan,Y,out).setPosition(at(x,bottom,-0.019));
         pickets.push(placement);
         for(const rib of [-0.031,0,0.031]){
-          box(fencePanelMat,at(x+rib,(bottom+top-0.025)/2,0.020),0.010,height-0.025,0.006,tan);
+          box(fencePanelMat,at(x+rib,(bottom+top-0.025)/2,0.020),0.010,panelHeight-0.025,0.006,tan);
         }
       }
     } else {
       const siding = S.fence === 'siding';
-      const count = siding ? 9 : 11;
-      const pitch = height/count;
-      if(siding) box(fenceMetalMat,at(0,(bottom+top)/2,-0.034),width,height,0.024,tan);
+      const count = Math.round(panelHeight/(siding ? 0.18 : 1.62/11));
+      const pitch = panelHeight/count;
+      if(siding) box(fenceMetalMat,at(0,(bottom+top)/2,-0.034),width,panelHeight,0.024,tan);
       for(let i=0;i<count;i++){
         box(fencePanelMat,at(0,bottom+(i+0.5)*pitch),width,pitch*(siding ? 0.98 : 0.82),
           siding ? 0.035 : 0.075,tan,siding ? -0.13 : -0.45);
@@ -1605,13 +1624,14 @@ function buildFence(doorX){
     }
     if(gate){
       for(const x of [-width/2+0.024,width/2-0.024]){
-        box(fenceMetalMat,at(x,(bottom+top)/2,0.03),0.048,height,0.065,tan);
+        box(fenceMetalMat,at(x,(bottom+top)/2,0.03),0.048,panelHeight,0.065,tan);
       }
       for(const y of [bottom,top]) box(fenceMetalMat,at(0,y,0.03),width,0.045,0.065,tan);
-      box(fenceMetalMat,at(width/2-0.14,1.02,0.079),0.21,0.035,0.055,tan);
+      box(fenceMetalMat,at(width/2-0.14,Math.min(1.02,top-0.10),0.079),0.21,0.035,0.055,tan);
     }
   }
 
+  const doorX = frontDoorX();
   const gateOffset = 0.65 + postWidth/2;
   const corners = [[-hx,hz],[doorX-gateOffset,hz],[doorX+gateOffset,hz],[hx,hz],[hx,-hz],[-hx,-hz]];
   for(const [i,[x,z]] of corners.entries()){
@@ -1631,8 +1651,8 @@ function buildFence(doorX){
   if(pickets.length){
     const half = picketWidth/2;
     const shape = new THREE.Shape();
-    shape.moveTo(-half,0); shape.lineTo(half,0); shape.lineTo(half,picketHeight-0.024);
-    shape.quadraticCurveTo(0,picketHeight+0.024,-half,picketHeight-0.024);
+    shape.moveTo(-half,0); shape.lineTo(half,0); shape.lineTo(half,panelHeight-0.024);
+    shape.quadraticCurveTo(0,panelHeight+0.024,-half,panelHeight-0.024);
     shape.closePath();
     const geometry = new THREE.ExtrudeGeometry(shape,{depth:0.038,bevelEnabled:false,curveSegments:12});
     const slats = new THREE.InstancedMesh(geometry,fencePanelMat,pickets.length);
@@ -1942,12 +1962,11 @@ function build(){
     { id:'left',  c:new THREE.Vector3(-W/2,0,0), n:new THREE.Vector3(-1,0,0), t:new THREE.Vector3(0,0,1),  len:L },
   ];
   const floors = H >= 5.4 ? [1.6, H - 1.45] : [Math.min(1.65, H - 1.05)];
-  let doorX = 0;
+  const doorX = frontDoorX();
   for(const f of faces){
-    const count = Math.max(1, Math.floor(f.len / 3.1));
+    const count = faceOpeningCount(f.len);
     const step = f.len / count;
     const doorIndex = f.door ? Math.floor(count/2) : -1;
-    if(f.door) doorX = -f.len/2 + step*(doorIndex+0.5);
     const bay = S.bayFaces.includes(f.id) ? facadeBay(f,doorX) : null;
     for(let i=0;i<count;i++){
       const off = -f.len/2 + step*(i+0.5);
@@ -1961,7 +1980,7 @@ function build(){
   const pathLength = S.fence === 'none' ? 7 : fenceSetback-0.8+0.15;
   const path = new THREE.Mesh(new THREE.PlaneGeometry(1.4,pathLength).rotateX(-Math.PI/2),pathMat);
   path.position.set(doorX,0.007,L/2+0.8+pathLength/2); path.receiveShadow = true; house.add(path);
-  buildFence(doorX);
+  buildFence();
 
   // крыша
   const lift = new THREE.Vector3(0, 0.04, 0);
@@ -2231,12 +2250,12 @@ segment(document.getElementById('mats'),  Object.entries(MATS).map(([k,v]) => [k
 segment(document.getElementById('falz-pan'), [['plain','Гладкая'],['ribs','Два ребра'],['narrow','Две полосы'],['wide','Одна полоса']], 'falzPan', applyLook);
 segment(document.getElementById('coats'), Object.entries(COATS).map(([k,v]) => [k, v.name]), 'coat', applyLook);
 segment(document.getElementById('frames'), FRAMES.map((f,i) => [i, f[1]]), 'frames', applyLook);
-const fencePostOptions = document.getElementById('fence-post-options');
-fencePostOptions.hidden = S.fence === 'none';
+const fenceOptions = document.getElementById('fence-options');
+fenceOptions.hidden = S.fence === 'none';
 segment(document.getElementById('fence-styles'), FENCE_STYLES, 'fence', ()=>{
   const enabled = S.fence !== 'none';
-  const reframe = enabled && fencePostOptions.hidden;
-  fencePostOptions.hidden = !enabled;
+  const reframe = enabled && fenceOptions.hidden;
+  fenceOptions.hidden = !enabled;
   build();
   if(reframe) setView('overview');
 });
@@ -2289,16 +2308,31 @@ function toggles(el, list){
 toggles(document.getElementById('toggles'), [['trims','Торцевые и карнизные планки'],['snow','Снегозадержатели'],['gutter','Водосточная система']]);
 toggles(document.getElementById('envtoggles'), [['trees','Деревья']]);
 
-function addSlider(parent, s){
+function addSlider(parent, s, onInput, onChange){
   const row = document.createElement('div'); row.className = 'row';
   const fmt = s.fmt || (v => (s.step < 1 ? (+v).toFixed(s.step < 0.1 ? 2 : 1) : v) + s.unit);
   row.innerHTML = `<label for="slider-${s.k}"><span>${s.label}</span><b>${fmt(S[s.k])}</b></label><input id="slider-${s.k}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${S[s.k]}">`;
   const inp = row.querySelector('input'), out = row.querySelector('b');
-  inp.oninput = () => { S.skylights = {}; S.vents = {}; S[s.k] = parseFloat(inp.value); out.textContent = fmt(inp.value); scheduleBuild(); };
-  inp.onchange=()=>requestAnimationFrame(()=>refreshRoofDetail());
+  inp.oninput = () => {
+    S[s.k] = inp.valueAsNumber;
+    out.textContent = fmt(S[s.k]);
+    onInput();
+  };
+  if(onChange) inp.onchange = onChange;
   parent.appendChild(row);
 }
-for(const s of SLIDERS) addSlider(document.getElementById('sliders'), s);
+function updateHouseDimensions(){
+  S.skylights = {};
+  S.vents = {};
+  scheduleBuild();
+}
+for(const s of SLIDERS){
+  addSlider(document.getElementById('sliders'),s,updateHouseDimensions,()=>requestAnimationFrame(()=>refreshRoofDetail()));
+}
+addSlider(document.getElementById('fence-dimensions'),{
+  k:'fenceHeight', label:'Высота забора', ...FENCE_HEIGHT_RANGE, unit:' м',
+  fmt:value=>value.toFixed(2).replace('.',',')+' м'
+},buildFence);
 const slopeControls = document.getElementById('skysl');
 
 function updateSlopeControls(slopes,eaveHeight){
@@ -2465,7 +2499,7 @@ function setView(name='overview'){
     }
     if(S.fence!=='none' && (name==='overview' || name==='top')){
       const x = S.W/2+fenceSetback+0.26, z = S.L/2+fenceSetback+0.26;
-      points.push(new THREE.Vector3(-x,0,-z),new THREE.Vector3(x,fenceHeight+0.06,z));
+      points.push(new THREE.Vector3(-x,0,-z),new THREE.Vector3(x,S.fenceHeight,z));
     }
   }
   const box = new THREE.Box3().setFromPoints(points);

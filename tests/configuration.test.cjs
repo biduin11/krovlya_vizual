@@ -90,3 +90,16 @@ test('fence and both bay settings survive shared links',()=>{
  },null)).state;
  assert.deepEqual(JSON.parse(JSON.stringify(invalid)),{bayFaces:['front'],slopeDormers:[1]});
 });
+
+test('fence height survives shared links on the supported slider steps',()=>{
+ const api=load();
+ const readHeight = state => api.decodeConfiguration(api.encodeConfiguration(state,null)).state.fenceHeight;
+ for(const fenceHeight of [1,1.9,2.35,3]){
+  assert.equal(readHeight({fenceHeight}),fenceHeight);
+ }
+ assert.equal(readHeight({fenceHeight:2.34}),2.35);
+ for(const fenceHeight of [0.95,3.05,'2.35',null]){
+  assert.equal(readHeight({fenceHeight}),undefined);
+ }
+ assert.equal(readHeight({fence:'picket'}),undefined);
+});
