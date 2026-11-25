@@ -1,0 +1,169 @@
+From d32f10f92780b0ed8fafafe2bc64faa601888758 Mon Sep 17 00:00:00 2001
+From: Biduin Kadiev <kadyzay@gmail.com>
+Date: Wed, 25 Nov 2026 08:31:24 +0000
+Subject: [PATCH] Set fence pickets to 130 mm and add RAL colors
+
+---
+ prototype/index.html         | 49 ++++++++++++++++++++++++++++++------
+ tests/configuration.test.cjs |  4 +--
+ tests/roof-model.test.cjs    |  2 +-
+ 3 files changed, 44 insertions(+), 11 deletions(-)
+
+diff --git a/prototype/index.html b/prototype/index.html
+index 2b1ffdc..5242079 100644
+--- a/prototype/index.html
++++ b/prototype/index.html
+@@ -259,6 +259,8 @@
+         <div id="fence-post-options" hidden>
+           <h3>Столбы</h3>
+           <div class="seg small" id="fence-posts" role="group" aria-label="Материал столбов"></div>
++          <h3>Цвет забора <span id="fence-ral-name"></span></h3>
++          <div class="sw" id="fence-colors" role="group" aria-label="Цвет забора RAL"></div>
+         </div>
+       </section>
+ 
+@@ -280,7 +282,7 @@ const { OrbitControls } = await import('three/addons/controls/OrbitControls.js')
+ const S = { type:'gable', mat:'tile', coat:'gloss', ral:'8017', W:8, L:10, H:3.2, A:30, O:0.5,
+             facade:0, plinth:0, frames:0, trims:true, snow:true, gutter:true, trees:true, hour:15.5,
+             skyN:1, skyPos:0.5, skylights:{}, gutCol:'roof', ridgeStyle:'round', falzPan:'plain', ventN:0, vents:{}, slopeWindows:null, slopeVents:null,
+-            fence:'none', fencePost:'metal', bayFaces:[], slopeDormers:[] };
++            fence:'none', fencePost:'metal', fenceRal:'8017', bayFaces:[], slopeDormers:[] };
+ 
+ const TYPES = [
+   { id:'shed',    name:'Односкатная', n:1, icon:'<rect x="9" y="15" width="24" height="13" fill="#d8d2c6"/><path d="M5 17 L37 5 L37 9 L5 21Z" fill="#45322E"/>' },
+@@ -342,6 +344,7 @@ function decodeConfiguration(encoded){
+     const state = {};
+     const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024'],
+       fence:['none','corrugated','picket','siding','louver'],fencePost:['metal','stone']};
++    enums.fenceRal = enums.ral;
+     const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8]};
+     for(const [key,value] of Object.entries(data.state)){
+       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
+@@ -1517,6 +1520,16 @@ function addOpening(c, nrm, tan, off, y, w, h, kind){
+ const fenceSetback = 3;
+ const fenceHeight = 1.85;
+ let fenceKey = '';
++const picketWidth = 0.13;
++function picketCenters(width){
++  if(width<picketWidth) return [];
++  const count = Math.min(Math.round((width+0.035)/(picketWidth+0.035)),
++    Math.floor((width+0.020)/(picketWidth+0.020)));
++  if(count<=1) return [0];
++  const gap = Math.min(0.050,(width-count*picketWidth)/(count-1));
++  return Array.from({length:count},(_,i)=>(i-(count-1)/2)*(picketWidth+gap));
++}
++
+ function buildFence(doorX){
+   const key = [S.fence, S.fencePost, S.W, S.L, doorX].join(':');
+   if(key === fenceKey) return;
+@@ -1528,6 +1541,8 @@ function buildFence(doorX){
+   const stone = S.fencePost === 'stone';
+   const postWidth = stone ? 0.42 : 0.10;
+   const boxes = new Map();
++  const pickets = [];
++  const picketHeight = 1.74-0.12;
+   const transform = new THREE.Matrix4();
+   const zAxis = new THREE.Vector3();
+   function box(mat, center, width, height, depth, tan, tilt = 0){
+@@ -1570,12 +1585,13 @@ function buildFence(doorX){
+       sheetProfile([...front,...back],at(-width/2,bottom),at(-width/2,top),tan,fencePanelMat,
+         {up:out.clone().negate(),group:fenceGroup});
+     } else if(S.fence === 'picket'){
+-      const count = Math.round(width/0.155);
+-      const pitch = width/count;
+-      for(let i=0;i<count;i++){
+-        const x = (i+0.5)*pitch-width/2;
+-        box(fencePanelMat,at(x,(bottom+top)/2),pitch*0.63,height,0.038,tan);
+-        box(fencePanelMat,at(x,top+0.008),pitch*0.60,0.017,0.042,tan);
++      const usable = gate ? width-0.096 : width;
++      for(const x of picketCenters(usable)){
++        const placement = new THREE.Matrix4().makeBasis(tan,Y,out).setPosition(at(x,bottom,-0.019));
++        pickets.push(placement);
++        for(const rib of [-0.031,0,0.031]){
++          box(fencePanelMat,at(x+rib,(bottom+top-0.025)/2,0.020),0.010,height-0.025,0.006,tan);
++        }
+       }
+     } else {
+       const siding = S.fence === 'siding';
+@@ -1612,6 +1628,18 @@ function buildFence(doorX){
+       addPanel(start.clone().addScaledVector(tan,(p+0.5)*spacing),tan,spacing-postWidth-(gate ? 0.075 : 0.015),gate);
+     }
+   }
++  if(pickets.length){
++    const half = picketWidth/2;
++    const shape = new THREE.Shape();
++    shape.moveTo(-half,0); shape.lineTo(half,0); shape.lineTo(half,picketHeight-0.024);
++    shape.quadraticCurveTo(0,picketHeight+0.024,-half,picketHeight-0.024);
++    shape.closePath();
++    const geometry = new THREE.ExtrudeGeometry(shape,{depth:0.038,bevelEnabled:false,curveSegments:12});
++    const slats = new THREE.InstancedMesh(geometry,fencePanelMat,pickets.length);
++    pickets.forEach((matrix,i)=>slats.setMatrixAt(i,matrix));
++    slats.castShadow = slats.receiveShadow = true;
++    fenceGroup.add(slats);
++  }
+   for(const [material,matrices] of boxes){
+     const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(),material,matrices.length);
+     matrices.forEach((matrix,i)=>mesh.setMatrixAt(i,matrix));
+@@ -2147,6 +2175,10 @@ function applyLook(){
+   updateStats(roofModel().pitchText);
+   const r = RAL.find(r => r[0] === S.ral);
+   roofMat.color.set(r[2]); trimMat.color.set(r[2]); roofBackingMat.color.set(r[2]);
++  const fenceColor = RAL.find(color=>color[0]===S.fenceRal);
++  fencePanelMat.color.set(fenceColor[2]);
++  fenceMetalMat.color.set(fenceColor[2]);
++  document.getElementById('fence-ral-name').textContent = `RAL ${fenceColor[0]} · ${fenceColor[1]}`;
+   const c = COATS[S.coat];
+   roofMat.roughness = trimMat.roughness = c.r;
+   roofMat.clearcoat = S.coat === 'gloss' ? .38 : (S.coat === 'pural' ? .16 : 0);
+@@ -2232,7 +2264,7 @@ function swatches(el, list, key, bg, title){
+   list.forEach((item, i) => {
+     const b = document.createElement('button');
+     b.style.background = bg(item); b.title = title(item); b.setAttribute('aria-label', title(item));
+-    const id = key === 'ral' ? item[0] : i;
++    const id = key === 'ral' || key === 'fenceRal' ? item[0] : i;
+     if(S[key] === id) b.classList.add('on');
+     b.setAttribute('aria-pressed', String(S[key] === id));
+     b.onclick = () => { S[key] = id; [...el.children].forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); applyLook(); };
+@@ -2240,6 +2272,7 @@ function swatches(el, list, key, bg, title){
+   });
+ }
+ swatches(document.getElementById('rals'), RAL, 'ral', r => r[2], r => `RAL ${r[0]} — ${r[1]}`);
++swatches(document.getElementById('fence-colors'), RAL, 'fenceRal', r => r[2], r => `RAL ${r[0]} — ${r[1]}`);
+ swatches(document.getElementById('facade'), FACADE, 'facade', f =>
+   f[0] === 1 ? `repeating-linear-gradient(0deg, rgba(235,230,220,.55) 0 1.5px, transparent 1.5px 7px), ${f[1]}`
+   : f[0] === 2 ? `repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 11px), ${f[1]}` : f[1], f => f[2]);
+diff --git a/tests/configuration.test.cjs b/tests/configuration.test.cjs
+index 89159d0..e0d13fd 100644
+--- a/tests/configuration.test.cjs
++++ b/tests/configuration.test.cjs
+@@ -81,12 +81,12 @@ test('per-slope counts and vent positions survive shared links',()=>{
+ test('fence and both bay settings survive shared links',()=>{
+  const api=load();
+  for(const fence of ['none','corrugated','picket','siding','louver']) for(const fencePost of ['metal','stone']){
+-  const state={fence,fencePost,bayFaces:['front','left'],slopeDormers:[0,3]};
++  const state={fence,fencePost,fenceRal:'6005',bayFaces:['front','left'],slopeDormers:[0,3]};
+   const decoded=api.decodeConfiguration(api.encodeConfiguration(state,null)).state;
+   assert.deepEqual(JSON.parse(JSON.stringify(decoded)),state);
+  }
+  const invalid=api.decodeConfiguration(api.encodeConfiguration({
+-  fence:'invalid',fencePost:3,bayFaces:['front','front','garage'],slopeDormers:[1,4,'2']
++  fence:'invalid',fencePost:3,fenceRal:'invalid',bayFaces:['front','front','garage'],slopeDormers:[1,4,'2']
+  },null)).state;
+  assert.deepEqual(JSON.parse(JSON.stringify(invalid)),{bayFaces:['front'],slopeDormers:[1]});
+ });
+diff --git a/tests/roof-model.test.cjs b/tests/roof-model.test.cjs
+index afbbdac..f82486a 100644
+--- a/tests/roof-model.test.cjs
++++ b/tests/roof-model.test.cjs
+@@ -69,7 +69,7 @@ test('changing material and RAL updates the scene caption immediately', () => {
+     THREE:{Vector3}, roofSurfaceMeshes:[], skylightMeshes:[], needsRender:false,
+     document:{getElementById(id){if(!elements.has(id)) elements.set(id,{});return elements.get(id);}},
+     roofMat:material(), trimMat:material(), roofBackingMat:material(), wallMat:material(), plinthMat:material(),
+-    frameMat:material(), gutterMat:material(), doorMat:material(),
++    frameMat:material(), fencePanelMat:material(), fenceMetalMat:material(), gutterMat:material(), doorMat:material(),
+     U:{uProfile:{},uPer:{},uHeight:{},uMatteTexture:{},uFalzPan:{}}, WU:{uKind:{}}
+   });
+   const data = html.slice(html.indexOf('const S ='), html.indexOf('/* configuration helpers */'));
+-- 
+2.52.0
+
