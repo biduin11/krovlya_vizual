@@ -179,11 +179,9 @@
   .seg button { flex: 1 1 auto; padding: 8px; min-height: 36px; }
   #mats { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); }
   #mats button { grid-column: span 3; padding-inline: 3px; font-size: 11.5px; }
-  #mats button:nth-child(-n+3) { grid-column: span 4; }
-  #mats button:nth-child(6) { grid-column: span 2; }
-  #mats button:nth-child(7) { grid-column: span 4; }
+  #mats button:nth-child(5), #mats button:nth-child(6) { grid-column: span 2; }
+  #mats button:last-child { grid-column: span 5; }
   .sw { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; }
-  .sw.f5 { grid-template-columns: repeat(5,minmax(0,1fr)); }
   .sw button {
     position: relative; aspect-ratio: 1; min-width: 0; border-radius: 6px;
     border: 1px solid #5a463638; box-shadow: inset 0 0 0 1px #fff2;
@@ -392,7 +390,7 @@
         <div class="settings-page" id="house-settings" role="tabpanel" aria-labelledby="house-tab" hidden>
           <section>
             <h2>Фасад <span id="facname"></span></h2>
-            <div class="sw f5" id="facade" role="group" aria-label="Отделка фасада"></div>
+            <div class="sw" id="facade" role="group" aria-label="Отделка фасада"></div>
             <h3>Цоколь <span id="plname"></span></h3>
             <div class="sw" id="plinth" role="group" aria-label="Отделка цоколя"></div>
             <h3 id="frames-heading">Окна и двери</h3>
@@ -449,9 +447,10 @@ const TYPES = [
   { id:'gambrel', name:'Ломаная',     n:4, icon:'<rect x="9" y="16" width="24" height="12" fill="#d8d2c6"/><path d="M6 19 L10 9 L21 3 L32 9 L36 19 L33 19 L29.5 10.5 L21 6 L12.5 10.5 L9 19Z" fill="#45322E"/><path d="M9 17 L12.5 10.5 L21 6 L29.5 10.5 L33 17Z" fill="#d8d2c6"/>' },
 ];
 const MATS = {
-  tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061 },
+  tile:   { name:'Монтеррей', prof:0, per:0.1835, height:0.061, skylightLift:0.048 },
   cascade:{ name:'Каскад',    prof:3, per:0.183, height:0.045 },
-  bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.074 },
+  bavaria:{ name:'Бавария',   prof:4, per:0.255, height:0.074, skylightLift:0.058 },
+  finnera:{ name:'Финнера',   prof:6, per:finneraSection().pitch, height:finneraSection().wave+finneraSection().step, skylightLift:0.040 },
   c21:    { name:'С21',       prof:1, per:0.100, height:0.021 },
   prof:   { name:'НС35',      prof:1, per:0.200, height:0.035 },
   falz:   { name:'Фальц',     prof:2, per:0.515, height:0.030 },
@@ -469,13 +468,24 @@ const RAL = [
   ['7024','Графит','#474A51'],['7004','Сигнальный серый','#969992'],['9005','Чёрный','#0E0E10'],
   ['1014','Слоновая кость','#DDC49A'],['9003','Белый','#ECECE7'],
 ];
-// kind: 0 штукатурка, 1 кирпич, 2 камень
+// Индекс отделки сохраняется в ссылках, поэтому новые варианты добавляются в конец.
+// Типы: 0 штукатурка, 1 кирпич, 2 камень, 3 планкен, 4 сайдинг, 5 фиброцемент,
+// 6 графитовый кирпич со светлым швом, 7 пёстрый кирпич ручной формовки.
 const FACADE = [
   [0,'#F1EEE7','Белая штукатурка'],[0,'#E9DCC2','Штукатурка, слоновая кость'],[0,'#D5BF99','Штукатурка, песочный'],
   [0,'#BDBEB9','Штукатурка, серый'],[0,'#5E6266','Штукатурка, графит'],
   [1,'#9A4130','Красный кирпич'],[1,'#D9B97A','Жёлтый кирпич'],[1,'#6B3E2E','Коричневый кирпич'],
   [2,'#DDCCA5','Ракушечник'],[2,'#B4AFA3','Серый камень'],
+  [0,'#C1B8AA','Штукатурка, тёплый серый'],
+  [1,'#E4DED1','Молочный кирпич'],
+  [2,'#8F8173','Камень, тёплый графит'],
+  [3,'#B78250','Планкен, лиственница'],[3,'#75543D','Планкен, тёмный орех'],
+  [4,'#E4D9BD','Сайдинг, кремовый'],[4,'#77929D','Сайдинг, серо-синий'],
+  [5,'#B7BCC0','Фиброцемент, светло-серый'],[5,'#555D65','Фиброцемент, антрацит'],
+  [6,'#333337','Графитовый кирпич'],[7,'#A06449','Кирпич ручной формовки, пёстрый'],
 ];
+const BRICK_GROUT = {graphite:'#D3D3D0', handmade:'#37312D'};
+const HANDMADE_BRICK = {light:'#C8A580', dark:'#4D4642', red:'#A85339'};
 const PLINTH = [['#8A8277','Серый'],['#4A4B4D','Графит'],['#6B5444','Коричневый'],['#B9A98C','Под камень']];
 const GUTTER = [['roof','В цвет кровли',null],['9003','Белый','#ECECE7'],['8017','Коричневый','#45322E'],['7024','Графит','#474A51']];
 const FRAMES = [['#F7F7F5','Белые'],['#3A3D42','Антрацит'],['#8A5A32','Золотой дуб']];
@@ -501,10 +511,10 @@ function decodeConfiguration(encoded){
     const data = JSON.parse(decodeURIComponent(encoded));
     if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
     const state = {};
-    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024'],
+    const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','finnera','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024'],
       fence:['none','corrugated','picket','siding','louver'],fencePost:['metal','stone']};
     enums.fenceRal = enums.ral;
-    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,9],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8],
+    const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,FACADE.length-1],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8],
       fenceHeight:[FENCE_HEIGHT_RANGE.min,FENCE_HEIGHT_RANGE.max]};
     for(const [key,value] of Object.entries(data.state)){
       if(Object.hasOwn(enums,key) && enums[key].includes(value)) state[key]=value;
@@ -691,6 +701,7 @@ scene.add(ground);
 /* ---------- материал кровли: процедурный профиль ---------- */
 const U = { uProfile:{ value:0 }, uPer:{ value:MATS.tile.per }, uHeight:{ value:MATS.tile.height }, uViewportHeight:{ value:1 }, uMatteTexture:{ value:false }, uFalzPan:{ value:0 } };
 const BAV = Object.fromEntries(Object.entries(bavariaSection()).map(([k,v])=>[k,v.toFixed(7)]));
+const FINNERA = Object.fromEntries(Object.entries(finneraSection()).map(([k,v])=>[k,v.toFixed(7)]));
 // Generate the seam shader from the same cross-section used by the physical mesh.
 const FALZNASTIL = falznastilSection();
 const FALZNASTIL_GROOVES = falznastilGrooves();
@@ -744,6 +755,18 @@ float hBavaria(vec2 p){
   float stepProfile = smoothstep(0.0,0.06,row)*(1.0-smoothstep(0.06,1.0,row));
   return ${BAV.H}*bavariaWave(p.x) + ${BAV.lip}*stepProfile;
 }
+float coursePitch(){ return uProfile==6 ? ${FINNERA.course} : 0.35; }
+float courseTop(){ return uProfile==6 ? ${FINNERA.face}/${FINNERA.course} : (uProfile==4 ? 0.06 : 0.018); }
+float hFinnera(vec2 p){
+  float t = fract(p.x/uPer);
+  float d = min(t,1.0-t);
+  float wave = 1.0-smoothstep(${FINNERA.shoulder},${FINNERA.foot},d)
+               -${FINNERA.notchDepth}*(1.0-smoothstep(0.0,${FINNERA.notch},d));
+  float row = fract(p.y/${FINNERA.course});
+  float face = ${FINNERA.face}/${FINNERA.course};
+  float stepProfile = smoothstep(0.0,face,row)*(1.0-max(row-face,0.0)/(1.0-face));
+  return ${FINNERA.wave}*wave + ${FINNERA.step}*stepProfile;
+}
 float cascadeGrooveDistance(float u){
   float d = abs(fract(u/uPer)-0.5)*uPer;
   return min(abs(d-0.014),abs(d-0.037));
@@ -772,6 +795,7 @@ float hgt(vec2 p){
   else if(uProfile==3) height=hCascade(p);
   else if(uProfile==4) height=hBavaria(p);
   else if(uProfile==5) height=hFalznastil(p);
+  else if(uProfile==6) height=hFinnera(p);
   else height=hFalz(p);
   return height;
 }
@@ -794,7 +818,7 @@ vec3 matteTexture(vec2 uv, vec2 footprint){
   );
   return vec3(0.13*baseGrain+0.08*fineGrain,0.065*grainFade*grainSlope);
 }
-bool stampedTile(){ return uProfile==0 || uProfile==3 || uProfile==4; }
+bool stampedTile(){ return uProfile==0 || uProfile==3 || uProfile==4 || uProfile==6; }
 vec2 roofDetailFade(){
   vec2 footprint = fwidth(vM);
   // Transverse steps are much narrower than the spacing between courses.
@@ -830,7 +854,7 @@ roofMat.onBeforeCompile = (sh) => {
   ` + sh.vertexShader
     .replace('#include <begin_vertex>', `#include <begin_vertex>
       vReliefFade = 1.0;
-      if(uProfile==0 || uProfile==3 || uProfile==4){
+      if(uProfile==0 || uProfile==3 || uProfile==4 || uProfile==6){
         vec3 basePosition = position - normal*reliefHeight;
         vec3 eyePosition = (modelViewMatrix*vec4(basePosition,1.0)).xyz;
         float incidence = abs(dot(normalize(normalMatrix*normal),normalize(eyePosition)));
@@ -859,8 +883,8 @@ roofMat.onBeforeCompile = (sh) => {
           float grooveFade=1.0-smoothstep(0.002,0.008,pixel);
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y - 0.12*groove*grooveFade*vReliefFade;
         } else if(stampedTile()){
-          float row=fract(vM.y/0.35);
-          float stepTop=uProfile==4 ? 0.06 : 0.018;
+          float row=fract(vM.y/coursePitch());
+          float stepTop=courseTop();
           float crease=(1.0-smoothstep(stepTop,stepTop+0.044,row))*smoothstep(0.0,0.01,row);
           diffuseColor.rgb *= 1.0 - 0.19*crease*fade.y;
         } else diffuseColor.rgb *= mix(0.9, mix(0.76,1.0,hN), fade.x);
@@ -926,14 +950,13 @@ roofMat.onBeforeCompile = (sh) => {
       }
     `)
     .replace('#include <opaque_fragment>', `
-      if(uProfile==0 || uProfile==4){
+      if(stampedTile() && uProfile!=3){
         // Filter the course edge after lighting so the gloss highlight keeps the row visible.
         float footprint=fwidth(vM.y);
-        float stepTop=uProfile==4 ? 0.06 : 0.018;
-        float crest=uProfile==4 ? bavariaWave(vM.x) : hTile(vec2(vM.x,0.0))/0.036;
-        float row=fract(vM.y/0.35-stepTop-0.032*crest*(1.0-vReliefFade));
+        float crest=uProfile==6 ? 0.0 : (uProfile==4 ? bavariaWave(vM.x) : hTile(vec2(vM.x,0.0))/0.036);
+        float row=fract(vM.y/coursePitch()-courseTop()-0.032*crest*(1.0-vReliefFade));
         float distanceToStep=min(row,1.0-row);
-        float feather=max(0.085,footprint/0.35);
+        float feather=max(0.085,footprint/coursePitch());
         float stepShade=1.0-smoothstep(0.0,feather,distanceToStep);
         float resolved=1.0-smoothstep(0.020,0.070,footprint);
         outgoingLight *= 1.0-mix(0.30,0.12,vReliefFade)*stepShade*resolved;
@@ -941,15 +964,18 @@ roofMat.onBeforeCompile = (sh) => {
       #include <opaque_fragment>
     `);
 };
-roofMat.customProgramCacheKey = () => 'roof-profile-v30-standing-seam-pans';
+roofMat.customProgramCacheKey = () => 'roof-profile-v31-finnera';
 // A continuous backing closes the silhouette and casts the roof's shadow.
 const roofBackingMat = new THREE.MeshStandardMaterial({
   color:'#45322E', side:THREE.DoubleSide, roughness:0.58, metalness:0.1, envMapIntensity:0.18
 });
 
-/* ---------- фасад: штукатурка / кирпич / камень ---------- */
+/* ---------- отделка фасада ---------- */
 const WU = { uKind:{ value:0 } };
-function setMasonryPattern(material, kind){
+function wallShaderColor(hex){
+  return `vec3(${new THREE.Color(hex).toArray().map(channel=>channel.toFixed(6)).join(',')})`;
+}
+function setWallPattern(material, kind){
   material.onBeforeCompile = (sh) => {
   sh.uniforms.uKind = kind;
   sh.vertexShader = 'varying vec3 vWP;\nvarying vec3 vWN;\n' + sh.vertexShader.replace('#include <project_vertex>',
@@ -961,7 +987,7 @@ function setMasonryPattern(material, kind){
       vec3 base = diffuseColor.rgb;
       if(uKind == 0){
         base *= 0.96 + 0.06*vnoise(wp*3.0) + 0.03*vnoise(wp*19.0);
-      } else {
+      } else if(uKind <= 2){
         vec2 b = uKind == 1 ? vec2(0.26, 0.075) : vec2(0.40, 0.20);
         float mx = uKind == 1 ? 0.04 : 0.025;
         float my = uKind == 1 ? 0.13 : 0.05;
@@ -976,17 +1002,75 @@ function setMasonryPattern(material, kind){
         float fd = 1.0 - smoothstep(b.y*0.12, b.y*0.45, fw);
         vec3 avg = mix(base, mortar, 0.18);
         base = mix(avg, mix(unit, mortar, m), fd);
+      } else if(uKind == 3){
+        float board = wp.y/0.155;
+        float seam = 1.0-smoothstep(0.025,0.070,fract(board));
+        float tone = 0.87+0.24*hash2(vec2(floor(board),0.0));
+        float grainFade = 1.0-smoothstep(0.003,0.016,fw);
+        float grain = (vnoise(wp*vec2(2.5,130.0))-0.5)*0.28*grainFade;
+        float detail = 1.0-smoothstep(0.020,0.075,fw);
+        base *= mix(0.97,(tone+grain)*(1.0-0.60*seam),detail);
+      } else if(uKind == 4){
+        float panel = fract(wp.y/0.220);
+        float overlap = 1.0-smoothstep(0.0,0.12,panel);
+        float face = mix(0.86,1.11,panel)-0.22*overlap;
+        float detail = 1.0-smoothstep(0.026,0.100,fw);
+        base *= mix(0.97,face,detail);
+      } else if(uKind == 5){
+        vec2 size = vec2(1.20,0.60);
+        vec2 panel = wp/size;
+        vec2 cell = fract(panel);
+        vec2 edge = min(cell,1.0-cell)*size;
+        float joint = 1.0-smoothstep(0.004,0.008+0.5*min(fw,0.018),min(edge.x,edge.y));
+        float tone = 0.95+0.10*hash2(floor(panel));
+        float detail = 1.0-smoothstep(0.035,0.130,fw);
+        base *= mix(0.98,tone*(1.0-0.55*joint),detail);
+      } else if(uKind == 6 || uKind == 7){
+        bool handmade = uKind == 7;
+        vec2 size = handmade ? vec2(0.246,0.084) : vec2(0.266,0.076);
+        vec2 q = wp/size;
+        q.x += 0.5*mod(floor(q.y),2.0);
+        vec2 id = floor(q);
+        float tint = hash2(id);
+        float mottle = vnoise(wp*vec2(24.0,62.0));
+        float grainFade = 1.0-smoothstep(0.002,0.010,fw);
+        float grain = (vnoise(wp*280.0)-0.5)*grainFade;
+        vec3 unit = base;
+        if(handmade){
+          if(tint<0.09) unit = ${wallShaderColor(HANDMADE_BRICK.dark)};
+          else if(tint<0.29) unit = ${wallShaderColor(HANDMADE_BRICK.light)};
+          else if(tint<0.53) unit = ${wallShaderColor(HANDMADE_BRICK.red)};
+          float ridges = vnoise(wp*vec2(30.0,158.0));
+          float weathering = smoothstep(0.42,0.77,mottle*0.75+ridges*0.25);
+          unit = mix(unit,${wallShaderColor(HANDMADE_BRICK.light)},0.35*weathering);
+          unit *= 0.78+0.39*mottle+0.21*(ridges-0.5)*grainFade+0.23*grain;
+        } else {
+          unit *= 0.88+0.14*tint+0.13*mottle+0.33*grain;
+        }
+        // Rounded corners and an uneven cut edge on the hand-moulded brick.
+        vec2 face = abs(fract(q)-0.5)*size;
+        vec2 halfSize = size*0.5-(handmade ? vec2(0.0058,0.0052) : vec2(0.0056,0.0044));
+        float radius = handmade ? 0.0015+0.0035*tint : 0.0010;
+        vec2 corner = face-halfSize+radius;
+        float edge = length(max(corner,0.0))+min(max(corner.x,corner.y),0.0)-radius;
+        edge += (mottle-0.5)*(handmade ? 0.0045 : 0.0005);
+        float aa = clamp(0.5*fw,0.0004,0.009);
+        float joint = smoothstep(-aa,aa,edge);
+        vec3 mortar = handmade ? ${wallShaderColor(BRICK_GROUT.handmade)} : ${wallShaderColor(BRICK_GROUT.graphite)};
+        mortar *= 0.97+0.06*mottle+0.10*grain;
+        float detail = 1.0-smoothstep(0.022,0.075,fw);
+        base = mix(mix(base,mortar,0.15),mix(unit,mortar,joint),detail);
       }
       base *= mix(0.80, 1.0, smoothstep(0.0, 1.4, vWP.y));
       diffuseColor.rgb = base;
     }`);
   };
-  material.customProgramCacheKey = () => 'wall-v1';
+  material.customProgramCacheKey = () => 'wall-v3-brick-finishes';
 }
 const wallMat = new THREE.MeshStandardMaterial({ color:'#F1EEE7', roughness:.92, metalness:0, side:THREE.DoubleSide });
-setMasonryPattern(wallMat, WU.uKind);
+setWallPattern(wallMat, WU.uKind);
 const fenceStoneMat = new THREE.MeshStandardMaterial({ color:'#B6A68C', roughness:.93 });
-setMasonryPattern(fenceStoneMat, {value:2});
+setWallPattern(fenceStoneMat, {value:2});
 const fenceMetalMat = new THREE.MeshStandardMaterial({ color:'#3D4143', roughness:.58, metalness:.28 });
 const fencePanelMat = new THREE.MeshStandardMaterial({ color:'#79604E', roughness:.46, metalness:.27 });
 
@@ -1147,6 +1231,30 @@ function bavariaHeight(u,v){
   const row=((v/.35)%1+1)%1;
   return h+B.lip*smooth(0,.06,row)*(1-smooth(.06,1,row));
 }
+// Finnera TS52-330-1140. Dimensions in metres; the shoulder and fold shapes are approximated.
+function finneraSection(){
+  return finneraSection.cache ??= {
+    pitch:.190, course:.330, wave:.022, step:.030, face:.006,
+    shoulder:.075, foot:.39, notch:.065, notchDepth:.08, scallop:.022,
+  };
+}
+function finneraSmooth(a,b,x){
+  const t=Math.max(0,Math.min(1,(x-a)/(b-a)));
+  return t*t*(3-2*t);
+}
+function finneraHeight(u,v){
+  const f=finneraSection();
+  const d=Math.abs(u/f.pitch-Math.round(u/f.pitch));
+  const wave=1-finneraSmooth(f.shoulder,f.foot,d)-f.notchDepth*(1-finneraSmooth(0,f.notch,d));
+  const row=v-Math.floor(v/f.course)*f.course;
+  const step=finneraSmooth(0,f.face,row)*(1-Math.max(row-f.face,0)/(f.course-f.face));
+  return f.wave*wave+f.step*step;
+}
+function finneraCourseOffset(u){
+  const f=finneraSection();
+  const d=Math.abs(u/f.pitch-Math.round(u/f.pitch));
+  return -f.scallop*finneraSmooth(f.shoulder,f.foot,d);
+}
 /* end tile profile */
 
 // Match the GLSL profiles so highlights follow the displaced surface.
@@ -1155,6 +1263,7 @@ function roofProfileHeight(u,v,material){
   if(material.prof===5) return falznastilHeight(u,v);
   if(material.prof===0) return tileHeight(u,v);
   if(material.prof===4) return bavariaHeight(u,v);
+  if(material.prof===6) return finneraHeight(u,v);
   const d = Math.abs(((u/material.per)%1+1)%1-0.5)*material.per;
   const trapezoid = (top,foot) => Math.max(0,Math.min(1,(foot-d)/(foot-top)));
   if(material.prof===1){
@@ -1168,20 +1277,24 @@ function roofProfileHeight(u,v,material){
 function roofReliefGeometry(s, material, quality='overview'){
   const detailed = quality==='detail';
   const straight = material.prof===1 || material.prof===2 || material.prof===5;
+  const finnera = material.prof===6 ? finneraSection() : null;
   // For profiled sheets, slice parallel to the ribs so they stay straight on hips.
-  const section = straight ? {uv:s.uv.map(([u,v]) => [v,u])} : s;
+  const alongSlope = straight || finnera ? {uv:s.uv.map(([u,v]) => [v,u])} : null;
+  const section = straight ? alongSlope : s;
   const low = Math.min(...section.uv.map(p=>p[1]));
   const high = Math.max(...section.uv.map(p=>p[1]));
   const left = Math.min(...section.uv.map(p=>p[0]));
   const right = Math.max(...section.uv.map(p=>p[0]));
   const heights = new Set(section.uv.map(p=>p[1]));
-  const pitch = straight ? material.per : 0.35;
+  const pitch = straight ? material.per : (finnera?.course ?? 0.35);
+  const face = finnera ? finnera.face/pitch : 0;
   const fractions = straight
     ? (material.prof===2 ? falzSamples(material.pan).flatMap(x=>[x/pitch,1-x/pitch]) : material.prof===5
       ? [...falznastilSection().map(p=>p[0]),...falznastilGrooves().flatMap(x=>[x-.002,x-.0005,x+.0005,x+.002]),pitch/2].flatMap(x=>[x/pitch,1-x/pitch])
       : pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
     : material.prof===3 ? [0,.016,.5]
     : material.prof===4 ? (detailed ? [0,.01,.02,.03,.045,.06,.09,.15,.27,.47,.72] : [0,.02,.06,.15,.45,.75])
+    : finnera ? (detailed ? [0,face/4,face/2,face*3/4,face,.08,.17,.35,.62,.85] : [0,face/2,face,.17,.5,.85])
     : detailed ? [0,.006,.012,.018,.05,.10,.20,.40,.65,.88] : [0,.006,.018,.10,.40,.70];
   for(let row=Math.floor(low/pitch);row*pitch<high;row++) for(const fraction of fractions){
     const v=(row+fraction)*pitch;
@@ -1190,7 +1303,8 @@ function roofReliefGeometry(s, material, quality='overview'){
   const rows=[...heights].sort((a,b)=>a-b).filter((v,i,a)=>i===0 || v-a[i-1]>1e-7);
   // Черепица: не больше 32 000 треугольников на скат в общем виде и 96 000 вблизи.
   const budget = detailed ? 96000 : 32000;
-  const columns = straight ? 1 : Math.max(1,Math.min(Math.ceil((right-left)/(material.per/(material.prof===4 ? (detailed?24:12) : (detailed?12:6)))),Math.floor(budget/(2*Math.max(1,rows.length-1)))));
+  const samplesPerWave = (detailed ? 12 : 6)*(material.prof===4 || finnera ? 2 : 1);
+  const columns = straight ? 1 : Math.max(1,Math.min(Math.ceil((right-left)/(material.per/samplesPerWave)),Math.floor(budget/(2*Math.max(1,rows.length-1)))));
   const pos=[],nor=[],su=[],sv=[],meters=[],relief=[],indices=[];
   for(const row of rows){
     const [lo,hi]=spanAt(section,row);
@@ -1201,8 +1315,16 @@ function roofReliefGeometry(s, material, quality='overview'){
       else sample=Math.max(lo,Math.min(hi,left+(right-left)*col/columns));
       const [u,v]=straight ? [row,sample] : [sample,row];
       const h=roofProfileHeight(u,v,material);
+      let renderV=v;
+      if(finnera){
+        // Bend the course lines downhill into each pan, keeping the cut perimeter fixed.
+        // Keep the unwarped course coordinate for shading so it follows the same bend.
+        const [bottom,top]=spanAt(alongSlope,u);
+        const edgeFade=Math.max(0,Math.min(1,Math.min(v-bottom,top-v)/0.05));
+        renderV+=finneraCourseOffset(u)*edgeFade;
+      }
       relief.push(h);
-      pos.push(s.o.x+s.U.x*u+s.V.x*v+s.n.x*h,s.o.y+s.U.y*u+s.V.y*v+s.n.y*h,s.o.z+s.U.z*u+s.V.z*v+s.n.z*h);
+      pos.push(s.o.x+s.U.x*u+s.V.x*renderV+s.n.x*h,s.o.y+s.U.y*u+s.V.y*renderV+s.n.y*h,s.o.z+s.U.z*u+s.V.z*renderV+s.n.z*h);
       nor.push(s.n.x,s.n.y,s.n.z);su.push(s.U.x,s.U.y,s.U.z);sv.push(s.V.x,s.V.y,s.V.z);meters.push(u,v);
     }
   }
@@ -1630,8 +1752,8 @@ const skylightMeshes = [];
 const roofVents = [];
 let tileQuality='overview';
 let needsRender=true;
-// Черепичные профили (Монтеррей, Каскад) имеют два уровня сетки; профнастил и фальц от него не зависят.
-const qualityDependent = () => [0,3,4].includes(MATS[S.mat].prof);
+// Черепичные профили имеют два уровня сетки, профнастил и фальц от него не зависят.
+const qualityDependent = () => [0,3,4,6].includes(MATS[S.mat].prof);
 function refreshRoofDetail(preferred){
   const ratio=camera.position.distanceTo(controls.target)/Math.max(S.W,S.L);
   const next=preferred || (ratio<1.4 ? 'detail' : ratio>2 ? 'overview' : tileQuality);
@@ -1994,7 +2116,7 @@ function skylightsOverlap([u, v], [otherU, otherV]){
 
 function placeSkylight({group, frame, s, point:[u,v]}){
   needsRender=true;
-  const lift = S.mat==='tile' ? 0.048 : S.mat==='bavaria' ? 0.058 : 0;
+  const lift = MATS[S.mat].skylightLift ?? 0;
   group.position.copy(s.o).addScaledVector(s.U,u).addScaledVector(s.V,v).addScaledVector(s.n,lift);
   // Extend the frame towards the roof so it supports the raised flashing.
   frame.scale.y = 1+lift/0.13;
@@ -2483,11 +2605,40 @@ function swatches(el, list, key, bg, title){
     el.appendChild(b);
   });
 }
+function brickFacadePreview(handmade,color){
+  const preview=document.createElement('canvas');
+  preview.width=preview.height=96;
+  const ctx=preview.getContext('2d');
+  ctx.fillStyle=handmade ? BRICK_GROUT.handmade : BRICK_GROUT.graphite;
+  ctx.fillRect(0,0,96,96);
+  const width=handmade ? 32 : 36;
+  const colors=[color,HANDMADE_BRICK.light,color,HANDMADE_BRICK.red,color,HANDMADE_BRICK.dark,HANDMADE_BRICK.red];
+  for(let row=0;row<8;row++){
+    const shift=(row%2)*width/2;
+    for(let col=0;col<4;col++){
+      ctx.fillStyle=handmade ? colors[(row*2+col)%colors.length] : color;
+      ctx.beginPath();
+      ctx.roundRect(col*width-shift,row*12,width-2,handmade ? 10 : 10.5,handmade ? 1.35 : 0.5);
+      ctx.fill();
+    }
+  }
+  return `url(${preview.toDataURL()}) center / cover`;
+}
+function facadePreview([kind,color]){
+  switch(kind){
+    case 1: return `repeating-linear-gradient(0deg, rgba(235,230,220,.55) 0 1.5px, transparent 1.5px 7px), ${color}`;
+    case 2: return `repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 11px), ${color}`;
+    case 3: return `repeating-linear-gradient(0deg, #2e190a88 0 1px, transparent 1px 8px), repeating-linear-gradient(0deg, #2e190a20 0 1px, transparent 1px 3px), ${color}`;
+    case 4: return `repeating-linear-gradient(0deg, #0004 0, #fff3 2px, transparent 5px, #0002 11px), ${color}`;
+    case 5: return `repeating-linear-gradient(0deg, #0006 0 1px, transparent 1px 12px), repeating-linear-gradient(90deg, #0006 0 1px, transparent 1px 24px), ${color}`;
+    case 6:
+    case 7: return brickFacadePreview(kind===7,color);
+    default: return color;
+  }
+}
 swatches(document.getElementById('rals'), RAL, 'ral', r => r[2], r => `RAL ${r[0]} — ${r[1]}`);
 swatches(document.getElementById('fence-colors'), RAL, 'fenceRal', r => r[2], r => `RAL ${r[0]} — ${r[1]}`);
-swatches(document.getElementById('facade'), FACADE, 'facade', f =>
-  f[0] === 1 ? `repeating-linear-gradient(0deg, rgba(235,230,220,.55) 0 1.5px, transparent 1.5px 7px), ${f[1]}`
-  : f[0] === 2 ? `repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 11px), ${f[1]}` : f[1], f => f[2]);
+swatches(document.getElementById('facade'), FACADE, 'facade', facadePreview, f => f[2]);
 swatches(document.getElementById('plinth'), PLINTH, 'plinth', p => p[0], p => p[1]);
 
 function toggles(el, list){

@@ -52,7 +52,7 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  for(const uv of [[[0,0],[4,0],[4,3],[0,3]],[[0,0],[4,0],[3,3],[1,3]],[[0,0],[4,0],[2,3]]]){
   const s={uv,o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
-  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035},{prof:5,per:.510,height:.030},...['plain','ribs','narrow','wide'].map(pan=>({prof:2,per:.515,height:.030,pan}))]){
+  for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074},{prof:6,per:.190,height:.052},{prof:1,per:.1,height:.021},{prof:1,per:.2,height:.035},{prof:5,per:.510,height:.030},...['plain','ribs','narrow','wide'].map(pan=>({prof:2,per:.515,height:.030,pan}))]){
    const g=c.make(s,material),p=g.attributes.position.array,m=g.attributes.aM.array;
    assert.ok(p.length>100,'surface must contain physical relief');
    assert.ok(p.every(Number.isFinite));
@@ -61,6 +61,12 @@ test('relief mesh stays inside rectangular, hip and triangular slopes with finit
    for(let i=0;i<p.length/3;i++){
     const u=m[i*2],v=m[i*2+1],height=p[i*3+1]*.8+p[i*3+2]*.6;
     assert.ok(u>=-1e-8&&u<=4+1e-8&&v>=-1e-8&&v<=3+1e-8);
+    if(material.prof===6){
+     const alongSlope=p[i*3+1]*.6-p[i*3+2]*.8;
+     const inset=(4-uv[2][0])*alongSlope/3;
+     assert.ok(alongSlope>=-1e-8 && alongSlope<=3+1e-8);
+     assert.ok(u>=inset-1e-8 && u<=4-inset+1e-8,'scalloped rows stay inside the cut edges');
+    }
     assert.ok(height>=-1e-8&&height<=material.height+1e-8);
     assert.ok(Math.abs(g.attributes.reliefHeight.array[i]-height)<1e-8);
     maxHeight=Math.max(maxHeight,height);
@@ -77,12 +83,31 @@ test('overview mesh respects a 32000 triangle budget even for a large slope',()=
  const c=vm.createContext({THREE:{BufferGeometry:Geometry,Float32BufferAttribute:Attribute}});
  vm.runInContext(html.slice(html.indexOf('/* tile profile */'),html.indexOf('function flatGeometry'))+html.slice(html.indexOf('function spanAt('),html.indexOf('function build(){'))+';globalThis.make=roofReliefGeometry;',c);
  const s={uv:[[0,0],[20,0],[20,16],[0,16]],o:{x:0,y:0,z:0},U:{x:1,y:0,z:0},V:{x:0,y:.6,z:-.8},n:{x:0,y:.8,z:.6}};
- for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074}]){
+ for(const material of [{prof:0,per:.1835,height:.061},{prof:3,per:.183,height:.045},{prof:4,per:.255,height:.074},{prof:6,per:.190,height:.052}]){
   const overview=c.make(s,material,'overview'),detail=c.make(s,material,'detail');
   assert.ok(overview.index.length/3<=32000,'overview exceeds triangle budget');
   assert.ok(detail.index.length>overview.index.length,'close-up should retain more detail');
   assert.ok(detail.index.length/3<=96000,'close-up exceeds triangle budget');
  }
+});
+
+test('Finnera repeats six 22 mm waves across 1140 mm and two 30 mm steps over 660 mm',()=>{
+ const html=fs.readFileSync('prototype/index.html','utf8'), a=html.indexOf('/* tile profile */');
+ const c=vm.createContext({});
+ vm.runInContext(html.slice(a,html.indexOf('/* end tile profile */',a)),c);
+ const h=c.finneraHeight, crest=.013, trough=.095, face=.006;
+ const near=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-9,`${actual} differs from ${expected}`);
+ for(const u of [-.08,0,.024,trough]) for(const v of [-.17,0,.008,.21]){
+  near(h(u,v),h(u+.190,v));
+  near(h(u,v),h(u+1.140,v));
+  near(h(u,v),h(u,v+.330));
+  near(h(u,v),h(u,v+.660));
+ }
+ near(h(crest,0)-h(trough,0),.022);
+ near(h(trough,face)-h(trough,0),.030);
+ near(h(crest,face),.052);
+ assert.ok(h(0,0)<h(crest,0),'shallow fold between the crest shoulders');
+ assert.ok(c.finneraCourseOffset(trough)<c.finneraCourseOffset(crest),'the wide trough projects towards the eave');
 });
 
 test('Bavaria: 255 mm pitch, 44 mm wave, 30 mm step (74 mm profile), round convex crest, R60 into a flat pan',()=>{

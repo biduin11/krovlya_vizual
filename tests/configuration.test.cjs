@@ -7,7 +7,11 @@ function load(){
  const start=html.indexOf('/* configuration helpers */');
  assert.ok(start>=0,'configuration helpers must exist');
  const code=html.slice(start,html.indexOf('/* end configuration helpers */',start));
- const context=vm.createContext({});vm.runInContext(code+';globalThis.api={encodeConfiguration,decodeConfiguration};',context);return context.api;
+ const facadeStart=html.indexOf('const FACADE =');
+ const facadeCode=html.slice(facadeStart,html.indexOf('const PLINTH',facadeStart));
+ const context=vm.createContext({});
+ vm.runInContext(facadeCode+code+';globalThis.api={encodeConfiguration,decodeConfiguration,facades:FACADE};',context);
+ return context.api;
 }
 test('configuration round trips all options and camera',()=>{
  const api=load(), state={type:'hip',mat:'falz',coat:'matt',ral:'9003',W:14,L:5,H:7,A:55,O:.9,facade:9,plinth:3,frames:2,trims:false,snow:false,gutter:true,trees:false,hour:19.5,skyN:3,skyPos:.8,skylights:{'0:1':[1.25,2.5]},gutCol:'7024'};
@@ -40,9 +44,18 @@ test('skylight positions accept only supported window keys and finite coordinate
 
 test('both new and original roofing profile links retain their profile',()=>{
  const api=load();
- for(const mat of ['tile','cascade','bavaria','c21','prof','falz','falznastil']){
+ for(const mat of ['tile','cascade','bavaria','finnera','c21','prof','falz','falznastil']){
   assert.equal(api.decodeConfiguration(api.encodeConfiguration({mat},null)).state.mat,mat);
  }
+});
+
+test('facade links retain the palette indexes and discard invalid selections',()=>{
+ const api=load();
+ const indexFromLink=facade=>api.decodeConfiguration(api.encodeConfiguration({facade},null)).state.facade;
+ for(const facade of [0,9,10,13,15,17,18,19,20]) assert.equal(indexFromLink(facade),facade);
+ assert.equal(api.facades[9][2],'Серый камень');
+ assert.deepEqual(Array.from(api.facades.slice(10),([kind])=>kind),[0,1,2,3,3,4,4,5,5,6,7]);
+ for(const invalid of [-1,1.5,api.facades.length,'10']) assert.equal(indexFromLink(invalid),undefined);
 });
 
 test('ridge style is preserved in shared links and unknown styles are ignored',()=>{
