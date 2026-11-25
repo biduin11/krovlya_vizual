@@ -69,7 +69,7 @@ test('changing material and RAL updates the scene caption immediately', () => {
     THREE:{Vector3}, roofSurfaceMeshes:[], skylightMeshes:[], needsRender:false,
     document:{getElementById(id){if(!elements.has(id)) elements.set(id,{});return elements.get(id);}},
     roofMat:material(), trimMat:material(), roofBackingMat:material(), wallMat:material(), plinthMat:material(),
-    frameMat:material(), gutterMat:material(), doorMat:material(),
+    frameMat:material(), fencePanelMat:material(), fenceMetalMat:material(), gutterMat:material(), doorMat:material(),
     U:{uProfile:{},uPer:{},uHeight:{},uMatteTexture:{},uFalzPan:{}}, WU:{uKind:{}}
   });
   const data = html.slice(html.indexOf('const S ='), html.indexOf('/* configuration helpers */'));
