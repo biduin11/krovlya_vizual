@@ -34,6 +34,22 @@ test('Falznastil has a full-depth channel between paired seam ribs and flat pans
  }
  assert.ok(Math.abs(h(.034-1e-6,0)-h(.034+1e-6,0))<1e-6,'seam foot joins the pan without a gap');
 });
+test('Falznastil fence sections and gates keep the 330 mm pitch at cut edges',()=>{
+ const html=fs.readFileSync('prototype/index.html','utf8'),a=html.indexOf('/* tile profile */'),c=vm.createContext({});
+ vm.runInContext(html.slice(a,html.indexOf('/* end tile profile */',a)),c);
+ for(const width of [.21,1.225,2.535]){
+  const face=c.falznastilPanelFace(width);
+  assert.equal(face[0][0],0);
+  assert.equal(face.at(-1)[0],width);
+  assert.ok(face.every(([x,h],i)=>Number.isFinite(h) && h>=0 && h<=.030000001 && (!i || x-face[i-1][0]>1e-7)));
+  assert.ok(face.every(([,h],i)=>Math.abs(h-face[face.length-i-1][1])<1e-9),'matching cut at both sides');
+  if(width<.33) continue;
+  const crests=face.filter(([,h])=>h>.0299).map(([x])=>x);
+  assert.ok(crests.length>=8);
+  assert.ok(crests.some(x=>crests.some(y=>Math.abs(y-x-.330)<1e-9)),'uncut locks retain their pitch');
+  assert.ok(face.some(([,h])=>h<.0005),'thin pan grooves are sampled');
+ }
+});
 test('tile has periodic longitudinal waves and transverse courses',()=>{const h=profile();for(const u of [-1.13,0,.024,.09,.4])for(const v of [-.6,0,.005,.15,.345]){assert.ok(Math.abs(h(u,v)-h(u+.1835,v))<1e-10);assert.ok(Math.abs(h(u,v)-h(u,v+.35))<1e-10);}});
 test('pressed step has a steep face and broad pan, within 61 mm relief',()=>{const h=profile();const steep=(h(0,.009)-h(0,0))/.009;const pan=Math.abs(h(0,.2)-h(0,.1))/.1;assert.ok(steep>pan*5,'step must be sharper than pan');for(let u=0;u<.1835;u+=.003)for(let v=0;v<.35;v+=.003){const z=h(u,v);assert.ok(z>=0 && z<=.061+1e-9);}});
 

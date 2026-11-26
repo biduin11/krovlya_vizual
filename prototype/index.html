@@ -253,6 +253,10 @@
   }
   .fence-sample { display: block; width: 100%; height: 33px; border-radius: 4px; }
   .fence-sample--corrugated { background: repeating-linear-gradient(90deg, #735a49 0 5px, #91735e 6px 10px, #af8e74 11px 12px, #805f4c 13px 15px); }
+  .fence-sample--falznastil {
+    background: repeating-linear-gradient(90deg, #aa856b 0 2px, #614737 3px 4px, #a68065 5px 7px,
+      #80604c 8px 14px, #715443 15px, #80604c 16px 23px, #715443 24px, #80604c 25px 34px);
+  }
   .fence-sample--picket { background: repeating-linear-gradient(90deg,#82634d 0 6px,#a18165 6px 9px,transparent 9px 13px), var(--hover); }
   .fence-sample--siding { background: repeating-linear-gradient(0deg,#584336 0 1px,#795d48 2px,#a6886d 7px 8px); }
   .fence-sample--louver { background: repeating-linear-gradient(0deg,#4e3c30 0 2px,#80604a 3px 5px,#b09377 6px 7px); }
@@ -489,7 +493,7 @@ const HANDMADE_BRICK = {light:'#C8A580', dark:'#4D4642', red:'#A85339'};
 const PLINTH = [['#8A8277','Серый'],['#4A4B4D','Графит'],['#6B5444','Коричневый'],['#B9A98C','Под камень']];
 const GUTTER = [['roof','В цвет кровли',null],['9003','Белый','#ECECE7'],['8017','Коричневый','#45322E'],['7024','Графит','#474A51']];
 const FRAMES = [['#F7F7F5','Белые'],['#3A3D42','Антрацит'],['#8A5A32','Золотой дуб']];
-const FENCE_STYLES = [['none','Без забора'],['corrugated','Профнастил'],['picket','Металлический штакетник'],['siding','Сайдинг'],['louver','Жалюзи Ранчо']];
+const FENCE_STYLES = [['none','Без забора'],['corrugated','Профнастил'],['falznastil','Фальцнастил'],['picket','Металлический штакетник'],['siding','Сайдинг'],['louver','Жалюзи Ранчо']];
 const BAY_FACES = [['front','Спереди'],['back','Сзади'],['right','Справа'],['left','Слева']];
 const SLIDERS = [
   { k:'W', label:'Ширина дома',  min:5,   max:14,  step:0.5,  unit:' м' },
@@ -512,7 +516,7 @@ function decodeConfiguration(encoded){
     if(!data || data.v !== 1 || !data.state || typeof data.state !== 'object' || Array.isArray(data.state)) return null;
     const state = {};
     const enums = {type:['shed','gable','hip','pyramid','gambrel'],mat:['tile','cascade','bavaria','finnera','c21','prof','falz','falznastil'],coat:['gloss','pural','matt'],ridgeStyle:['round','rect'],falzPan:['plain','ribs','narrow','wide'],ral:['3005','3009','3011','8017','8019','8004','6005','6020','5005','7024','7004','9005','1014','9003'],gutCol:['roof','9003','8017','7024'],
-      fence:['none','corrugated','picket','siding','louver'],fencePost:['metal','stone']};
+      fence:['none','corrugated','falznastil','picket','siding','louver'],fencePost:['metal','stone']};
     enums.fenceRal = enums.ral;
     const ranges = {W:[5,14],L:[5,18],H:[2.6,7],A:[10,55],O:[.2,.9],facade:[0,FACADE.length-1],plinth:[0,3],frames:[0,2],hour:[6.5,19.5],skyN:[0,3],ventN:[0,6],skyPos:[.2,.8],
       fenceHeight:[FENCE_HEIGHT_RANGE.min,FENCE_HEIGHT_RANGE.max]};
@@ -1198,6 +1202,24 @@ function falznastilHeight(u,v){
   const k=Math.max(0,Math.min(1,(groove-.0005)/.0015));
   return .001-.0008*(1-k*k*(3-2*k));
 }
+function falznastilSamples(){
+  const pitch=falznastilPitch();
+  const grooves=falznastilGrooves().flatMap(x=>[x-.002,x-.0005,x+.0005,x+.002]);
+  return [pitch/2,...falznastilSection().map(([x])=>x).flatMap(x=>[x,pitch-x]),...grooves.flatMap(x=>[x,pitch-x])];
+}
+function falznastilPanelFace(width){
+  const pitch=falznastilPitch(), panels=Math.ceil(width/pitch);
+  const start=(width-panels*pitch)/2;
+  const offsets=falznastilSamples(), positions=[0,width];
+  // Trim the outer panels equally while keeping the lock spacing fixed.
+  for(let i=0;i<panels;i++) for(const offset of offsets){
+    const x=start+i*pitch+offset;
+    if(x>1e-7 && x<width-1e-7) positions.push(x);
+  }
+  return positions.sort((a,b)=>a-b)
+    .filter((x,i)=>i===0 || x-positions[i-1]>1e-7)
+    .map(x=>[x,falznastilHeight(x-start,0)]);
+}
 // Metres: pressed wave + a short upstand at each 350 mm course.
 // Keep in sync with hTile in the fragment shader.
 function tileHeight(u,v){
@@ -1290,7 +1312,7 @@ function roofReliefGeometry(s, material, quality='overview'){
   const face = finnera ? finnera.face/pitch : 0;
   const fractions = straight
     ? (material.prof===2 ? falzSamples(material.pan).flatMap(x=>[x/pitch,1-x/pitch]) : material.prof===5
-      ? [...falznastilSection().map(p=>p[0]),...falznastilGrooves().flatMap(x=>[x-.002,x-.0005,x+.0005,x+.002]),pitch/2].flatMap(x=>[x/pitch,1-x/pitch])
+      ? falznastilSamples().map(x=>x/pitch)
       : pitch < 0.15 ? [0.175,0.325,0.675,0.825] : [0.225,0.325,0.675,0.775])
     : material.prof===3 ? [0,.016,.5]
     : material.prof===4 ? (detailed ? [0,.01,.02,.03,.045,.06,.09,.15,.27,.47,.72] : [0,.02,.06,.15,.45,.75])
@@ -1876,15 +1898,19 @@ function buildFence(){
     for(const y of [bottom+0.18,top-0.18]){
       box(fenceMetalMat,at(0,y,-0.047),width,0.055,0.072,tan);
     }
-    if(S.fence === 'corrugated'){
-      const cells = Math.ceil(width/0.12), pitch = width/cells;
+    if(S.fence === 'corrugated' || S.fence === 'falznastil'){
       const front = [];
-      for(let i=0;i<cells;i++){
-        for(const [offset,z] of [[0,0],[0.24,0],[0.40,0.031],[0.64,0.031],[0.80,0]]){
-          front.push([(i+offset)*pitch,-z]);
+      if(S.fence === 'falznastil'){
+        for(const [x,height] of falznastilPanelFace(width)) front.push([x,-height]);
+      } else {
+        const cells = Math.ceil(width/0.12), pitch = width/cells;
+        for(let i=0;i<cells;i++){
+          for(const [offset,z] of [[0,0],[0.24,0],[0.40,0.031],[0.64,0.031],[0.80,0]]){
+            front.push([(i+offset)*pitch,-z]);
+          }
         }
+        front.push([width,0]);
       }
-      front.push([width,0]);
       const back = front.slice().reverse().map(([x,z])=>[x,z+0.012]);
       sheetProfile([...front,...back],at(-width/2,bottom),at(-width/2,top),tan,fencePanelMat,
         {up:out.clone().negate(),group:fenceGroup});

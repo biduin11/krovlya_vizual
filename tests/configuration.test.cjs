@@ -93,7 +93,7 @@ test('per-slope counts and vent positions survive shared links',()=>{
 
 test('fence and both bay settings survive shared links',()=>{
  const api=load();
- for(const fence of ['none','corrugated','picket','siding','louver']) for(const fencePost of ['metal','stone']){
+ for(const fence of ['none','corrugated','falznastil','picket','siding','louver']) for(const fencePost of ['metal','stone']){
   const state={fence,fencePost,fenceRal:'6005',bayFaces:['front','left'],slopeDormers:[0,3]};
   const decoded=api.decodeConfiguration(api.encodeConfiguration(state,null)).state;
   assert.deepEqual(JSON.parse(JSON.stringify(decoded)),state);
