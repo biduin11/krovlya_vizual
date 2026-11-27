@@ -304,6 +304,24 @@
     #loading::before { animation: none !important; }
   }
 
+  .account-menu { position: relative; }
+  .account-menu summary {
+    min-height: 40px; padding: 0 8px; display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+    font-size: 12px; font-weight: 750;
+  }
+  .account-menu summary::-webkit-details-marker { display: none; }
+  @media (max-width: 820px) {
+    .account-menu summary { min-height: 39px; font-size: 11px; }
+  }
+  .account-menu > div {
+    position: absolute; z-index: 3; top: calc(100% + 6px); right: 0;
+    min-width: max-content; padding: 8px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel, white);
+  }
+  .account-menu a, .account-menu button {
+    display: block; padding: 6px 8px; color: inherit; font: inherit;
+  }
 </style>
 <script type="importmap">
 {"imports":{
@@ -322,6 +340,7 @@
     <div class="header-actions">
       <button type="button" id="share">Ссылка</button>
       <button type="button" id="export">Сохранить PNG</button>
+      <!-- account-actions -->
       <div class="action-details">
         <button id="dismiss-action" aria-label="Закрыть уведомление">×</button>
         <div id="action-status" role="status" aria-live="polite"></div>

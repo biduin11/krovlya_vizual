@@ -1,9 +1,22 @@
 {
   "framework": null,
   "buildCommand": "",
-  "outputDirectory": "prototype",
-  "redirects": [
-    { "source": "/prototype", "destination": "/", "permanent": false },
-    { "source": "/prototype/index.html", "destination": "/", "permanent": false }
+  "outputDirectory": "public",
+  "functions": {
+    "api/access.js": {
+      "includeFiles": "prototype/index.html",
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/access" },
+    { "source": "/prototype", "destination": "/api/access" },
+    { "source": "/prototype/index.html", "destination": "/api/access" },
+    { "source": "/login", "destination": "/api/access?route=login" },
+    { "source": "/confirm", "destination": "/api/access?route=confirm" },
+    { "source": "/logout", "destination": "/api/access?route=logout" },
+    { "source": "/admin", "destination": "/api/access?route=admin" },
+    { "source": "/admin/invite", "destination": "/api/access?route=admin/invite" },
+    { "source": "/admin/revoke", "destination": "/api/access?route=admin/revoke" }
   ]
 }
